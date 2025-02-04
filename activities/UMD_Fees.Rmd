@@ -28,6 +28,7 @@ umd_fees_pct <- umd_fees |> mutate(pct_change = (`Fall 2024`-`Fall 2021`)/`Fall 
 ### Task 4: Describe our results
 
 Write a few sentences about what you found in the data. What's the story here?
+Overall, student fees are rising incrementally, with rec services, the shuttle bus and the counseling center accounting for more than half of that increased cost.
 
 I would focus on the shuttle bus increases, which saw the highest dollar amount increase - why are costs rising so much? What is driving that increase? Have services seen a comparable increase? Does the addition of the purple line stand to reduce those costs? How does sustainability play into that? 
 
