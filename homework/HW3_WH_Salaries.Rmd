@@ -9,6 +9,7 @@ In this assignment, we will be working with a dataset containing information abo
 You will need to load the tidyverse library
 
 ```{r}
+library(tidyverse)
 ```
 
 Then you'll load the data from the web. The URL for the data is: https://raw.githubusercontent.com/dwillis/jour405/refs/heads/main/data/biden_wh_salaries_2024.csv. You will create a dataframe called `wh_salaries` that contains the data from this URL.
@@ -16,19 +17,21 @@ Then you'll load the data from the web. The URL for the data is: https://raw.git
 ### Task 2: Load the Data and Describe It
 
 ```{r}
+wh_salaries <- read_csv("https://raw.githubusercontent.com/dwillis/jour405/refs/heads/main/data/biden_wh_salaries_2024.csv")
 ```
 ### Task 3: Describe the Data
 
 You should examine that dataframe carefully by clicking on it in the Environment tab in RStudio. Write a couple of sentences describing the categories of incidents. From a reporting standpoint, what stands out to you about this data? Are there any salary values that will cause problems for analysis?
 
-ANSWER HERE
+This data includes salaries for White House employees ranging from 0 dollars to 250,000 dollars. It includes data for employees and detailees -- looks like that's when someone is temporarily reassigned to a new position. I think the only thing that might give us issues is the zeroes -- may have to figure out how to handle those. Also the 250k salary is a pretty big outlier, roughly 60k higher than the second highest-paid employee.
 
 ### Task 4: Calculate the Mean and Median of the Salaries
 
 Write code to calculate the mean and median of the salaries in the dataset using the `summarize()` function. You don't need to make a new dataframe, just display the results.
 
 ```{r}
-
+wh_salaries |>
+  summarise(mean(salary), median(salary))
 ```
 
 ### Task 5: Add in the minimum and maximum salaries
@@ -36,17 +39,24 @@ Write code to calculate the mean and median of the salaries in the dataset using
 Take the code you just wrote and add in the minimum and maximum salaries (the functions for that are `min()` and `max()`). Your results should show four columns: mean_salary, median_salary, min_salary, max_salary.
 
 ```{r}
-
+wh_salaries |>
+  summarise(mean_salary = mean(salary),
+            median_salary = median(salary),
+            min_salary = min(salary),
+            max_salary = max(salary))
 ```
 
 ### Task 6: Describe the Results
 
 Write a couple of sentences describing the results of your analysis. What do the mean and median salaries tell you about the data? What do the minimum and maximum salaries tell you? Are there any outliers in the data?
 
-ANSWER HERE
+Actually the small difference between the mean and the median surprised me because I expected the 250k outlier to throw things off more, but now that I think about it the fact that we had so many zeroes probably evened it out. The mean and median tell me people make decent money working for the White House, honestly more than I expected (but also somehow at the same time less than I expected.) Min/max tell me there are some higher-paid folks (250k) and some people ostensibly working for free? Although I think that 0 means some people are volunteering, but others are maybe in this database twice for their detailee temp reassignment and their salary wasn't recorded twice.
 
 ### Task 7: Story Idea
 
 Based on the data, what is your best story idea? What is the next step you would take to develop that story idea?
 
-ANSWER HERE
+Honestly the first thing that comes to mind is I would like to dig into the perceived "administrative bloat" that Trump and right wing folks are talking about -- I was actually surprised at how low some of these salaries are. I think I'd like to dig into the data based on category and see what types of employees are the highest paid vs lowest paid -- for example, how much is litigation / legal help costing our gov. vs policy consulting? Where does the WH stand to save the most money? How does that play into the administrative bloat conversation?
+
+If your average white house employee is making 107k per year, that seems relatively low, and I think when you divvy these salaries up into catogories we might find some more interesting stuff. 
+
