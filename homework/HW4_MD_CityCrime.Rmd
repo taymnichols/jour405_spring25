@@ -9,6 +9,8 @@ In this assignment, we will be working with a dataset of total crimes reported b
 You will need to load the tidyverse library and the janitor library
 
 ```{r}
+library(tidyverse)
+library(janitor)
 ```
 
 Then you'll load the data from the web. The URL for the data is: https://raw.githubusercontent.com/dwillis/jour405/refs/heads/main/data/md_cities_crime_2019_2020.csv. You will create a dataframe called `md_cities` that contains the data from this URL.
@@ -16,39 +18,68 @@ Then you'll load the data from the web. The URL for the data is: https://raw.git
 ### Task 2: Load the Data
 
 ```{r}
+md_cities <- read_csv("https://raw.githubusercontent.com/dwillis/jour405/refs/heads/main/data/md_cities_crime_2019_2020.csv")
 ```
 ### Task 3: Calculating Rates
 
 Calculate violent and property crime rates for each city for both years using `mutate()`. You'll create four new columns: `violent_rate_2019`, `property_rate_2019`, `violent_rate_2020`, and `property_rate_2020`. You'll need to figure out the proper unit rate, given that there are varying populations. There's no perfect choice; choose the one that works best for you. Save the results to a new dataframe called `md_cities_rates`.
 
 ```{r}
+md_cities_rates <- md_cities |>
+  mutate(violent_rate_2019 = round((violent2019/pop2019)*10000, 2),
+         property_rate_2019 = round((property2019/pop2019)*10000, 2),
+         violent_rate_2020 = round((violent2020/pop2020)*10000, 2),
+         property_rate_2020 = round((property2020/pop2020)*10000, 2)
+         )
 ```
 
 ### Task 4: Describe the Rates
 
 Examine the new dataframe, `md_cities_rates`, by clicking on it in the Environment tab in RStudio and sorting by the rate columns. Write a couple of sentences about the results, comparing and contrasting the cities with the highest rates (both violent and property) in 2019 and 2020. Do you see any patterns? What does this tell you about crime in Maryland cities? What's the story here?
+```{r}
+md_cities_rates_clean <- md_cities_rates |>
+  select(city, county, pop2019, pop2020, violent_rate_2019, violent_rate_2020, property_rate_2019, property_rate_2020)
+```
 
-ANSWER HERE
+A)
+Baltimore City and Ocean City have highest rate of violent crime, although they switched from 2019 to 2020. There are a few cities in Washington county with higher crime rates as well -- that's the only county grouping I noticed. It also seems like cities with higher populations tend to actually not have that high of crime rates, with the exception of Baltimore. However, Baltimore has lower property crime rates than other cities. This tells me that living in a bigger city doesn't necessarily increase your risk of being a victim of a crime in Maryland. I wonder if it's because Baltimore City and Ocean City are both kind of ... destination places? Where people from out of town are more likely to visit?
 
+I think the real story here is that Ocean City's violent crime rates nearly doubled from 2019 to 2020 but it looks like we're going to get to that in a second.
 
 ### Task 5: Calculate Percentage Change
 
 Let's add two percentage change columns to your dataframe: one for violent crime rates and one for property crime rates. You'll calculate the percentage change between 2019 and 2020 for each city. Save the results to a new dataframe called `md_cities_change`.
 
 ```{r}
+md_cities_change <- md_cities_rates |>
+  mutate(violent_pct = round((violent_rate_2020-violent_rate_2019)/violent_rate_2019*100,2),
+        property_pct = round((property_rate_2020-property_rate_2019)/property_rate_2019*100,2)) |>
+  select(city, county, pop2019, pop2020, violent_rate_2019, violent_rate_2020, property_rate_2019, property_rate_2020, violent_pct, property_pct)
 ```
 
 ### Task 7: Describe Percentage Changes
 
 Look at the `md_cities_change` dataframe by clicking on it in the Environment tab in RStudio. Write a couple of sentences describing the percentage change results. What's more interesting here, the patterns or the outliers? What's the story in the data?
 
-ANSWER HERE
+This dataframe is horrible to look at. I think both the outliers and the overall story are interesting -- it looks like overall the majority of counties in MD saw a decrease in crime rates. I think what's most interesting is that overall, property crimes decreased in most counties, which is counterintuitive to what I would have thought would happen during COVID when everyone was broke / mass ordering stuff off Amazon (I assume theft from the front porch counts as a property crime). About half of counties in Maryland saw an increase in violent crime, whereas about half saw a decrease. Comparatively, about a two-thirds of maryland counties saw an decrease in property crime. I was thinking violent crime would have gone down because people were on lockdown, but property crime would have increased due to economic difficulties.
+
+It's hard for me to get a sense of what's happening with the outliers, but I think it's interesting that some of the more dangerous cities in 2019 saw a drop in violent crime in 2020, while the most dangerous cities in 2020 saw a significant increase in violent crime from the year before. That's true of the top 3 cities for property crime in 2020, but after that, those cities still were seeing declines in property crimes overall.
+
+Also, it looks like PG County was particularly struggling with increases in violent crime during covid, as were Worcester and Montgomery.
 
 ### Task 8: Tell the Best Story
 
 Write up a lede and nutgraf of a story with the _best_ story idea you've found in this assignment. The lede should be a single sentence that summarizes the most important information in the data. The nutgraf should be a paragraph that provides more context and explains why the data is important.
 
-ANSWER HERE
+Despite lockdowns keeping residents home during the first year of the COVID-19 pandemic, roughly 42 percent of cities saw an increase in violent crime from 2019 to 2020.
+
+Pre-pandemic, the community of Edmonston in Prince George's county saw relatively few violent crimes per capita. That number jumped from 6 crimes per 10,000 people to 66 per 10k from 2019 to 2020. Eastern Shore residents in Pocomoke City were also particularly impacted with a nearly 300 percent increase in violent crime rates.
+
+Rising crime rates in the communities of Cambridge in Dorcester County and Princess Anne in Somerset County pushed the two cities into the top five worst cities in the state for violent crime rates per capita.
+
+While many cities saw an increase in crime, about a third of Maryland cities saw violent crime rates drop, suggesting communities across the state had different experiences during the pandemic.
+
+
 
 ### Task 9: Save Your Work and Put it on GitHub
 
