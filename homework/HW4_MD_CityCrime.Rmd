@@ -84,3 +84,40 @@ While many cities saw an increase in crime, about a third of Maryland cities saw
 ### Task 9: Save Your Work and Put it on GitHub
 
 Save this notebook, then commit it to your local repository. Push the changes to your GitHub repository and submit the URL for this file in ELMS.
+
+### Task 10 
+Using the 2020 violent crime rate, calculate the percentiles using `ntile()`. Save the results to a new dataframe called `md_cities_percentiles`. How many cities are above the 90th percentile?
+
+```{r}
+md_cities_percentiles <- md_cities_rates |>
+mutate(percentile = ntile(violent_rate_2020, 100))
+```
+
+A) Just 11 cities are in the 90th percentile. This is way easier to interpret.
+
+
+Calculate the Interquartile Range of the 2020 violent crime rate using `summarize()` and R's `IQR()` function. The syntax is similar to how `mean()` works.
+
+```{r}
+md_cities_rates |>
+  summarise(
+    q1 = quantile(violent_rate_2019, 0.25),
+    q2 = quantile(violent_rate_2019, 0.50),  # or median(column_name)
+    q3 = quantile(violent_rate_2019, 0.75),
+    IQR(violent_rate_2019)
+  )
+
+md_cities_rates |>
+  summarise(
+    q1 = quantile(violent_rate_2020, 0.25),
+    q2 = quantile(violent_rate_2020, 0.50),  # or median(column_name)
+    q3 = quantile(violent_rate_2020, 0.75),
+    IQR(violent_rate_2020)
+  )
+
+```
+
+Do the results change your best story idea from the previous assignment? Why or why not?
+I dont know that they change my idea per se, but I think it helps me give a more accurate picture of what is going on. I think if I was going to change it, I would talk about how it looks like generally speaking, cities that experienced higher rates of violent crime became safer during covid (the upper quartile moved backwards basically) but the median also moved up, meaning the cities on the lower half of the violent crime rate generally moved up and violent crime increased in cities where they experienced comparatively lower rates.
+
+I think it helps me better flesh out my interpretation, but actually it seems like I wasn't too far off.
