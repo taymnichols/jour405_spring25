@@ -5,27 +5,46 @@ title: "HW7_MandMs"
 In this assignment, you'll be picking up where you left off with the M&Ms activity. You'll load the data and perform some basic statistical analysis. Follow the steps below to complete the assignment.
 
 ### Task 1: Load the tidyverse
+```{r}
+library(tidyverse)
+```
 
 
 ### Task 2: Load the M&Ms dataset from https://raw.githubusercontent.com/dwillis/jour405/refs/heads/main/data/mandms.csv
+```{r}
+dataset <- read_csv("https://raw.githubusercontent.com/dwillis/jour405/refs/heads/main/data/mandms.csv")
+```
 
 
 ### Task 3: Sample 5 rows of data from the dataset
+```{r}
+sample <- dataset |>
+  sample_n(5)
+```
 
 
 ### Task 4: Calculate the mean age and standard deviation of the sample, using either the blue or white number of M&Ms
 
+```{r}
+sample |> summarise(mean = mean(red), sd = sd(red))
+```
 
 ### Task 5: Calculate the mean age and standard deviation of the population, using the same measure as in Task 4
-
+```{r}
+dataset |> summarise(mean = mean(red), sd = sd(red))
+```
 
 ### Task 6: Compare the sample and population statistics
 
 Compare the two sets of means and standard deviations. Are they similar?
 
+The first time I ran my code, the mean and SD were super far off (the mean for the sample was 94 vs. 73 in the full dataset). I ran it a few more times to see how it changed -- the mean gradually got closer, and the SD still had some pretty wide variations.
+
 ### Task 7: Describe the results
 
 Write a few sentences about what you found in the data. What does this tell you about the M&Ms dataset and about the act of random sampling?
+
+Based on the fact that I ran this code a bunch of times and got a few wildly different answers, I feel that random sampling is a) exactly what it says (random) and b) the bigger your sample size the more likely you are going to be to get a more accurate sampling -- 5% seems too small. Overall random sampling seems like a mixed bag (ha) based on this exercise.
 
 
 When finished, save your work, switch to GitHub Desktop, then add, commit and push your changes to GitHub and submit the URL of the notebook in ELMS.
