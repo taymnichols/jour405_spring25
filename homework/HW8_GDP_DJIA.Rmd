@@ -29,7 +29,8 @@ gdp_data <- read_csv("https://raw.githubusercontent.com/dwillis/jour405/refs/hea
 Use the `cor()` function to calculate the correlation coefficient between the DJIA and GDP.
 
 ```{r}
-
+gdp_data |>
+  summarise(correlation = cor(DJIA, GDP, method = "pearson", use = "complete.obs"))
 ```
 
 ### Task 4: Create a scatterplot
@@ -37,11 +38,15 @@ Use the `cor()` function to calculate the correlation coefficient between the DJ
 Use the `ggplot()` function to create a scatterplot of the DJIA and GDP. Be sure to label your axes and add a title.
 
 ```{r}
+ggplot(data = gdp_data, aes(x = DJIA, y = GDP)) +
+  geom_point()
 ```
 
 ### Task 5: Describe our results
 
 Write a few sentences about the relationship between the DJIA and GDP. Is there a strong correlation between the two variables? What does the scatterplot show?
+
+There is a very strong positive correlation between the two -- as GDP goes up, so does DJIA. The scotterplot shows the relationship is stronger the lower the numbers are, with a few outliers / more scattering around the DJIA 3000 marker. The relationship slows down after the 2000 mark, but it is still farily consistent. This is confirmed by our correlation calculation -- a pearson score of .95. We should probably check to see if it's statistically significant, but I am not sure how to do that in here, although I think from the topic and variables we can safely say it probably is.
 
 
 When you are done, save your work, switch to GitHub Desktop, then add, commit and push your changes to GitHub and submit the URL of the notebook in ELMS.
