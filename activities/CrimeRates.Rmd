@@ -38,13 +38,8 @@ md_annual_crimes <- md_annual_crimes |>
 md_annual_crimes 
 ```
 
-
-### Task 6: Describe our results
-
-Write a few sentences about what you found in the data. What years had the highest crime rates? What years had the lowest crime rates? Does the pattern match your expectations?
-
-It looks like the late 1970s and early 1980s had the highest overall crime rates, and they've steadily gone down since 1999. The lowest crime rates were from 2015-2020. This was shocking to me, I assumed crime would be worse in the last 10 years than previous decades. That finding is also true for property crime, which makes up the vast majority of crimes in Maryland. Violent crime rates have fluctuated more in the last 20 years, peaking in the 90s. The last decade still has the lowest violent crime rates since the 90s, but it has not steadily declined in the same way property crime has.
-
-
-When you are done, save your work, switch to GitHub Desktop, then add, commit and push your changes to GitHub and submit the URL of the notebook in ELMS.
+```{r}
+quantile(data, probs = c(0.25, 0.5, 0.75))
+print(quartiles)
+```
 
