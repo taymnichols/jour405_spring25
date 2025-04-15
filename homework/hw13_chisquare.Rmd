@@ -97,7 +97,7 @@ To interpret the results, we need to compare the chi-square statistic with the c
 
 ```{r}
 alpha <- 0.05
-df <- length(REPLACE_ME) - REPLACE_ME
+df <- length(grade_data$Grade) - 1
 critical_value <- qchisq(alpha, df, lower.tail = FALSE)
 critical_value
 ```
@@ -105,9 +105,12 @@ critical_value
 
 **Task 3** If the chi-square statistic is greater than the critical value, we reject the null hypothesis at the 0.05 alpha level. Do we? (3 points)
 
-ANSWER HERE
+Since the chi-square statistic is 11.667, it is greater than the critical value of 9.48, therefor we can reject the null hypothesis. The actual grades we received are statistically significantly different than what we expected to see.
 
 
 **Task 4** Describe the differences in the expected and observed frequencies for each grade category. Are there any notable discrepancies? What questions would you ask either the instructor or college about these discrepancies? (5 points)
 
-ANSWER HERE
+```{r}
+grade_data
+```
+Overall it seems like students got higher grades than expected -- there are 20 more As and 5 more Bs than we expected to see. There's also 20 fewer Cs and 10 less Fs than we expected to see - a lot of those grades look like they got redistributed to As and Bs basically. I think I would probably ask if anything changed with their curriculum, assignments or how they grade. Basically I would try to find out if the curriculum/assignments are easier than they used to be, or if the teacher grading is going easy on students. 
