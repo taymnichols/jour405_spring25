@@ -1,0 +1,115 @@
+---
+title: "final_project.rmd"
+author: "Taylor Nichols"
+date: "2025-04-24"
+output: html_document
+---
+
+Problems I am having so far:
+I am not really sure what to do with this data. I know how to compare it head to head but I am not sure what statistical analysis needs to happen here.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+```
+
+```{r}
+eviction_data <- read_csv("eviction_data_ward_geocodio.csv")
+df_violations <- read_delim("detailed_landlord_violations.csv", 
+                           delim = "\t",  # Try tab as delimiter
+                           locale = locale(encoding = "UTF-16LE"),
+                           show_col_types = FALSE) |> clean_names() |>
+                            mutate(created_date = case_when(str_detect(created_date, "^\\d{1,2}/\\d{1,2}/\\d{4}$") ~ mdy(created_date)))
+
+```
+Let's look at our eviction data 
+```{r}
+eviction_data
+```
+Our eviction data is pretty messy. It spans from Nov 2023 to June 2025. It includes address, case number, eviction date, and other geocoding info. 
+
+Now let's look at our violations data:
+```{r}
+df_violations
+```
+
+This data spans from march 2018 to march 2025. We also have owner, violation address, unit, cap_id (not sure what this is), floor, location, violation and fine amt.
+
+I think we can assume that addresses with units are likely owned by the same owner (unless they're condos -- maybe this isn't a safe assumption, actually.) Our landlord data is stored with unit as a separate column, so let's make our data format match.
+
+```{r}
+eviction_data_clean <- eviction_data |>
+  select(case_number, defendant_address, quad, zipcode, eviction_date, full_address, lat, lng, ward, year, month_name)
+```
+
+```{r}
+# Transform addresses to match between dataframes
+eviction_data_clean <- eviction_data_clean %>%
+  mutate(
+    # Extract clean street address (without unit)
+    clean_address = str_replace_all(
+      str_extract(defendant_address, "^[^,#]+"),  # Get everything before first comma or #
+      "\\s+,\\s*$", ""  # Remove trailing commas
+    ),
+    
+    # Extract unit number (if present)
+    clean_unit = case_when(
+      str_detect(defendant_address, "#\\S+") ~ 
+        str_replace(str_extract(defendant_address, "#\\S+"), "^#", ""),
+      str_detect(defendant_address, ",\\s*[A-Z][0-9]") ~ 
+        str_extract(defendant_address, "[A-Z][0-9]"),
+      TRUE ~ NA_character_
+    )
+  )
+
+```
+
+The evictions data is still pretty messy - units will need more cleaning, but at least we can play around with base address now.
+
+```{r}
+df_violations_clean <- df_violations |>
+  select(s_no, owner, violation_address, unit, created_date, location, violation)
+```
+
+Let's make a df that shows us how many violations have happened at each street address and how many units there are. 
+
+```{r}
+# Count total violations and unique units per address
+df_violations_summary <- df_violations_clean |>
+  group_by(violation_address) |>
+  summarise(
+    total_violations = n(),
+    unique_violation_units = n_distinct(unit, na.rm = TRUE),
+    unit_violation_list = paste(unique(na.omit(unit)), collapse = ", ")
+  )
+```
+
+Let's see how many violations there are per owner for fun.
+```{r}
+df_violations_clean |>
+  group_by(owner) |>
+  summarise(count=n()) |>
+  arrange(desc(count))
+```
+Now, let's join our violations to our evictions data.
+tabling this for now because i need to do some more data cleaning to do it.
+
+```{r}
+evictions_summary <- eviction_data_clean |>
+  group_by(clean_address) |>
+  summarise(
+    total_evictions = n(),
+    unique_eviction_units = n_distinct(clean_unit, na.rm = TRUE),
+    eviction_unit_list = toString(na.omit(unique(clean_unit)))
+  )
+```
+
+```{r}
+summary_df <- full_join(df_violations_summary, evictions_summary, ""
+```
+
