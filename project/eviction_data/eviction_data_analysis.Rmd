@@ -5,10 +5,20 @@ date: "2025-04-24"
 output: html_document
 ---
 
-Problems I am having so far:
-I am not really sure what to do with this data. I know how to compare it head to head but I am not sure what statistical analysis needs to happen here. I also need to load in the ownership data -- it's stored as .ods so I need to figure out how to load that in and get it cleaned and put into a format that I can use to compare it with eviction/violations data. ALSO my evictions data is insanely messy. 
 
-ALSO I need to figure out how i am going to identify owners that have different LLC names but are the same company. That might honestly take too much work, but some will just be data cleaning or matching obvious names. I think I need to sit down and think about this a bit/play with that data. 
+Kinds of tests I want to do:
+I think it would be useful to see if there is a correlation between evictions and landlord violations, and then do a linear regression. Once I get my home owner data loaded in, I would also like to see what the relationship between each of the three variables is (we can do that with a multiple regression, right? or just scatterplots on both of them?)
+
+What I really want to get at is how much more likely things are.
+
+I also want to look at eviction rates over time -- maybe weekly and monthly? Would it be worthwhile to look at when spikes occurred? probably. I wish i had more data to do this on but alas I do not.
+
+I also need to pull in the census data/overall stats. Is it worth pulling in census tract level data instead? I kind of feel like that might be more illuminating but also more work which I don't really feel like I need right now. I'll ruminate on it.
+
+I also think it would be wortwhile to look at this at the building level to identify eviction hot spots and how that has changed over time but I don't really know if that's a stats question.
+
+Problems I am having so far:
+Mostly I am just struggling to get the data all cleaned. The eviction data is a mess. I am getting close but I just need to sit down and have some heads down time on it so I can start my analyses. Which I will do this weekend.
 
 Evictions data comes from the DC Office of the Tenant Advocate. The violations data came from the DC Dept of Buildings Violations and Abatement Tool. https://dataviz1.dc.gov/t/OCTO/views/DOBPublicDashboard/ViolationsAbatementLVT?%3AshowAppBanner=false&%3Adisplay_count=n&%3AshowVizHome=n&%3Aorigin=viz_share_link&%3Aembed=yes&%3Atoolbar=no
 
