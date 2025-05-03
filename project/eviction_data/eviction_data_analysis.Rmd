@@ -52,25 +52,100 @@ eviction_data_clean <- eviction_data |>
 ```
 
 ```{r}
-# Transform addresses to match between dataframes
 eviction_data_clean <- eviction_data_clean %>%
   mutate(
-    # Extract clean street address (without unit)
-    clean_address = str_replace_all(
-      str_extract(defendant_address, "^[^,#]+"),  # Get everything before first comma or #
-      "\\s+,\\s*$", ""  # Remove trailing commas
+    # First, separate the unit information from the base address
+    base_address = case_when(
+      # Extract everything before UNIT, APT, etc.
+      str_detect(defendant_address, "(?i)\\s+(UNIT|APT|APARTMENT|SUITE|STE)\\s+[A-Z0-9-]+") ~
+        str_trim(str_replace(defendant_address, 
+                           "(?i)\\s+(UNIT|APT|APARTMENT|SUITE|STE)\\s+[A-Z0-9-]+.*$", "")),
+      
+      # If no UNIT/APT keyword, extract everything before a comma or #
+      str_detect(defendant_address, "[,#]") ~
+        str_trim(str_replace(str_extract(defendant_address, "^[^,#]+"), "\\s+$", "")),
+      
+      # Default: use the whole address if no unit information is found
+      TRUE ~ defendant_address
     ),
     
-    # Extract unit number (if present)
+    # Extract unit information
+    unit_info = case_when(
+      # Match "UNIT 123" format (works for UNIT 202, UNIT 409, UNIT 101, etc.)
+      str_detect(defendant_address, "(?i)\\s+UNIT\\s+\\d+") ~
+        str_trim(str_extract(defendant_address, "(?i)\\s+UNIT\\s+\\d+")),
+      
+      # Match "APT 123" format
+      str_detect(defendant_address, "(?i)\\s+APT(ARTMENT)?\\s+\\d+") ~
+        str_trim(str_extract(defendant_address, "(?i)\\s+APT(ARTMENT)?\\s+\\d+")),
+      
+      # Match "STE 123" format
+      str_detect(defendant_address, "(?i)\\s+S(UI)?TE\\s+\\d+") ~
+        str_trim(str_extract(defendant_address, "(?i)\\s+S(UI)?TE\\s+\\d+")),
+      
+      # Match "#123" format
+      str_detect(defendant_address, "#\\s*[A-Z0-9-]+") ~
+        str_trim(str_extract(defendant_address, "#\\s*[A-Z0-9-]+")),
+      
+      # Match comma followed by unit information
+      str_detect(defendant_address, ",\\s*(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+") ~
+        str_trim(str_extract(defendant_address, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+")),
+      
+      # Default: NA if no unit information is found
+      TRUE ~ NA_character_
+    ),
+    
+    # Extract just the unit number (without the UNIT/APT prefix)
     clean_unit = case_when(
-      str_detect(defendant_address, "#\\S+") ~ 
-        str_replace(str_extract(defendant_address, "#\\S+"), "^#", ""),
-      str_detect(defendant_address, ",\\s*[A-Z][0-9]") ~ 
-        str_extract(defendant_address, "[A-Z][0-9]"),
+      !is.na(unit_info) & str_detect(unit_info, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+") ~
+        str_trim(str_replace(unit_info, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+", "")),
+      
+      !is.na(unit_info) & str_detect(unit_info, "#\\s*\\d+") ~
+        str_trim(str_replace(unit_info, "#\\s*", "")),
+      
       TRUE ~ NA_character_
     )
+  ) %>%
+  # Now clean and standardize the base address
+  mutate(
+    clean_address = str_replace_all(base_address, "[,\\.]+", ""),
+    
+    # Standardize street suffixes
+    clean_address = case_when(
+      str_detect(clean_address, "(?i)\\s+STREET(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+STREET(\\s+|$)", " ST "),
+      str_detect(clean_address, "(?i)\\s+AVENUE(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+AVENUE(\\s+|$)", " AVE "),
+      str_detect(clean_address, "(?i)\\s+CIRCLE(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+CIRCLE(\\s+|$)", " CIR "),
+      str_detect(clean_address, "(?i)\\s+BOULEVARD(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+BOULEVARD(\\s+|$)", " BLVD "),
+      str_detect(clean_address, "(?i)\\s+COURT(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+COURT(\\s+|$)", " CT "),
+      str_detect(clean_address, "(?i)\\s+DRIVE(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+DRIVE(\\s+|$)", " DR "),
+      str_detect(clean_address, "(?i)\\s+LANE(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+LANE(\\s+|$)", " LN "),
+      str_detect(clean_address, "(?i)\\s+ROAD(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+ROAD(\\s+|$)", " RD "),
+      str_detect(clean_address, "(?i)\\s+PLACE(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+PLACE(\\s+|$)", " PL "),
+      str_detect(clean_address, "(?i)\\s+TERRACE(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+TERRACE(\\s+|$)", " TER "),
+      str_detect(clean_address, "(?i)\\s+HIGHWAY(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+HIGHWAY(\\s+|$)", " HWY "),
+      str_detect(clean_address, "(?i)\\s+PARKWAY(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+PARKWAY(\\s+|$)", " PKWY "),
+      str_detect(clean_address, "(?i)\\s+WAY(\\s+|$)") ~ 
+        str_replace_all(clean_address, "(?i)\\s+WAY(\\s+|$)", " WY "),
+        
+      # Default: keep the address as is
+      TRUE ~ clean_address
+    ),
+    
+    # Clean up any extra spaces
+    clean_address = str_trim(str_replace_all(clean_address, "\\s+", " "))
   )
-
 ```
 
 The evictions data is still pretty messy - units will need more cleaning, but at least we can play around with base address now.
@@ -103,17 +178,31 @@ df_violations_clean |>
 Now, let's join our violations to our evictions data.
 tabling this for now because i need to do some more data cleaning to do it.
 
+
+
 ```{r}
 evictions_summary <- eviction_data_clean |>
-  group_by(clean_address) |>
+  # First combine clean_address and quad (only where quad exists)
+  mutate(full_address = ifelse(
+    !is.na(quad),
+    paste(clean_address, quad),
+    clean_address
+  )) |>
+  # Then continue with your grouping and summarizing
+  group_by(full_address) |>
   summarise(
     total_evictions = n(),
     unique_eviction_units = n_distinct(clean_unit, na.rm = TRUE),
     eviction_unit_list = toString(na.omit(unique(clean_unit)))
   )
+
+# Rename the address column in violations summary to match your naming convention
+df_violations_summary <- df_violations_summary |>
+  rename(full_address = violation_address)
 ```
 
+
 ```{r}
-summary_df <- full_join(df_violations_summary, evictions_summary, ""
+summary_df <- full_join(df_violations_summary, evictions_summary, by = c("full_address"))
 ```
 
