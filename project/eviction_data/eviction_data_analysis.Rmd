@@ -5,9 +5,7 @@ date: "2025-04-24"
 output: html_document
 ---
 
-
-Kinds of tests I want to do:
-I think it would be useful to see if there is a correlation between evictions and landlord violations, and then do a linear regression. Once I get my home owner data loaded in, I would also like to see what the relationship between each of the three variables is (we can do that with a multiple regression, right? or just scatterplots on both of them?)
+Kinds of tests I want to do: I think it would be useful to see if there is a correlation between evictions and landlord violations, and then do a linear regression. Once I get my home owner data loaded in, I would also like to see what the relationship between each of the three variables is (we can do that with a multiple regression, right? or just scatterplots on both of them?)
 
 What I really want to get at is how much more likely things are.
 
@@ -17,22 +15,26 @@ I also need to pull in the census data/overall stats. Is it worth pulling in cen
 
 I also think it would be wortwhile to look at this at the building level to identify eviction hot spots and how that has changed over time but I don't really know if that's a stats question.
 
-Problems I am having so far:
-Mostly I am just struggling to get the data all cleaned. The eviction data is a mess. I am getting close but I just need to sit down and have some heads down time on it so I can start my analyses. Which I will do this weekend.
+Problems I am having so far: Mostly I am just struggling to get the data all cleaned. The eviction data is a mess. I am getting close but I just need to sit down and have some heads down time on it so I can start my analyses. Which I will do this weekend.
 
-Evictions data comes from the DC Office of the Tenant Advocate. The violations data came from the DC Dept of Buildings Violations and Abatement Tool. https://dataviz1.dc.gov/t/OCTO/views/DOBPublicDashboard/ViolationsAbatementLVT?%3AshowAppBanner=false&%3Adisplay_count=n&%3AshowVizHome=n&%3Aorigin=viz_share_link&%3Aembed=yes&%3Atoolbar=no
+Evictions data comes from the DC Office of the Tenant Advocate. The violations data came from the DC Dept of Buildings Violations and Abatement Tool. <https://dataviz1.dc.gov/t/OCTO/views/DOBPublicDashboard/ViolationsAbatementLVT?%3AshowAppBanner=false&%3Adisplay_count=n&%3AshowVizHome=n&%3Aorigin=viz_share_link&%3Aembed=yes&%3Atoolbar=no>
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+```{r load libraries}
 library(tidyverse)
 library(lubridate)
 library(janitor)
+library(ggplot2)
+library(readODS)
+library(vcd)
 ```
 
-```{r}
+## This section is cleaning data and getting it ready to analyze
+
+```{r read in data}
 eviction_data <- read_csv("eviction_data_ward_geocodio.csv")
 df_violations <- read_delim("detailed_landlord_violations.csv", 
                            delim = "\t",  # Try tab as delimiter
@@ -40,14 +42,27 @@ df_violations <- read_delim("detailed_landlord_violations.csv",
                            show_col_types = FALSE) |> clean_names() |>
                             mutate(created_date = case_when(str_detect(created_date, "^\\d{1,2}/\\d{1,2}/\\d{4}$") ~ mdy(created_date)))
 
+homeowners_one <- read_ods("ods_one.ods")
+homeowners_two <- read_ods("ods_2.ods")
+homeowners_three <- read_ods("ods_3.ods")
+homeowners_four <- read_ods("ods_4.ods")
+census <- read_csv("census_data.csv")
 ```
-Let's look at our eviction data 
+
+```{r}
+dc_homeowners <- bind_rows(homeowners_one, homeowners_two, homeowners_three, homeowners_four)
+```
+
+Let's look at our eviction data
+
 ```{r}
 eviction_data
 ```
-Our eviction data is pretty messy. It spans from Nov 2023 to June 2025. It includes address, case number, eviction date, and other geocoding info. 
+
+Our eviction data is pretty messy. It spans from Nov 2023 to June 2025. It includes address, case number, eviction date, and other geocoding info.
 
 Now let's look at our violations data:
+
 ```{r}
 df_violations
 ```
@@ -63,7 +78,6 @@ eviction_data_clean <- eviction_data |>
 
 ```{r}
 #I used Claude to help me write all this cleaning code
-
 eviction_data_clean <- eviction_data_clean %>%
   mutate(
     # First, separate the unit information from the base address
@@ -158,19 +172,68 @@ eviction_data_clean <- eviction_data_clean %>%
     # Clean up any extra spaces
     clean_address = str_trim(str_replace_all(clean_address, "\\s+", " "))
   )
+
+eviction_data_clean <- eviction_data_clean %>%
+  mutate(
+    # Extract the street suffix pattern
+    suffix_pattern = "(?i)\\s+(ST|AVE|BLVD|CIR|CT|DR|LN|RD|PL|TER|HWY|PKWY|WY)\\b",
+    
+    # Check if there's any remaining text after the street suffix
+    has_extra_text = str_detect(clean_address, paste0(suffix_pattern, "\\s+.+")),
+    
+    # For addresses with extra text after suffix, update columns
+    temp_address = ifelse(has_extra_text,
+                         str_extract(clean_address, paste0("^.*?", suffix_pattern)),
+                         clean_address),
+    
+    temp_unit_info = ifelse(has_extra_text,
+                           str_trim(str_replace(clean_address, paste0("^.*?", suffix_pattern, "\\s+"), "")),
+                           NA_character_),
+    
+    # Update clean_address with just the part up to the suffix
+    clean_address = ifelse(has_extra_text, str_trim(temp_address), clean_address),
+    
+    # Update unit_info with the extra text if unit_info was previously NA
+    unit_info = case_when(
+      has_extra_text & is.na(unit_info) ~ temp_unit_info,
+      has_extra_text & !is.na(unit_info) ~ paste(unit_info, temp_unit_info, sep = " "),
+      TRUE ~ unit_info
+    ),
+    
+    # Update clean_unit to extract numbers from the new unit_info
+    clean_unit = case_when(
+      # Keep existing clean_unit if already set
+      !is.na(clean_unit) ~ clean_unit,
+      
+      # Extract numbers/alphanumeric from remaining text
+      !is.na(unit_info) & str_detect(unit_info, "[0-9A-Z]+") ~
+        str_trim(str_extract(unit_info, "[0-9A-Z]+")),
+      
+      # Extract content from patterns like (D#202)
+      !is.na(unit_info) & str_detect(unit_info, "\\([^)]*#([0-9A-Z]+)\\)") ~
+        str_trim(str_extract(unit_info, "(?<=\\#)[0-9A-Z]+")),
+      
+      # Extract T1, D2, etc. type patterns
+      !is.na(unit_info) & str_detect(unit_info, "[A-Z][0-9]+") ~
+        str_trim(str_extract(unit_info, "[A-Z][0-9]+")),
+      
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  # Clean up the temporary columns
+  select(-suffix_pattern, -has_extra_text, -temp_address, -temp_unit_info) |>
+  filter(!str_detect(full_address, "\\bnan\\b")) |>
+    filter(!str_detect(full_address, "VACANT LOT"))
 ```
 
-The evictions data is still pretty messy - I think I'm just going to load it into openrefine to clean it faster.
-
-
-nits will need more cleaning, but at least we can play around with base address now.
+The evictions data is still pretty messy. Units will need more cleaning, but at least we can play around with base address now.
 
 ```{r}
 df_violations_clean <- df_violations |>
   select(s_no, owner, violation_address, unit, created_date, location, violation)
 ```
 
-Let's make a df that shows us how many violations have happened at each street address and how many units there are. 
+Let's make a df that shows us how many violations have happened at each street address and how many units there are.
 
 ```{r}
 # Count total violations and unique units per address
@@ -184,16 +247,14 @@ df_violations_summary <- df_violations_clean |>
 ```
 
 Let's see how many violations there are per owner for fun.
+
 ```{r}
 df_violations_clean |>
   group_by(owner) |>
   summarise(count=n()) |>
   arrange(desc(count))
 ```
-Now, let's join our violations to our evictions data.
-tabling this for now because i need to do some more data cleaning to do it.
-
-
+Now, let's join our violations to our evictions data. tabling this for now because i need to do some more data cleaning to do it.
 
 ```{r}
 evictions_summary <- eviction_data_clean |>
@@ -216,8 +277,82 @@ df_violations_summary <- df_violations_summary |>
   rename(full_address = violation_address)
 ```
 
-
 ```{r}
-summary_df <- full_join(df_violations_summary, evictions_summary, by = c("full_address"))
+summary_df <- full_join(df_violations_summary, evictions_summary, by = c("full_address")) |>
+    mutate(
+    total_violations = replace_na(total_violations, 0),
+    total_evictions = replace_na(total_evictions, 0))
 ```
 
+```{r}
+number_of_evictions <- summary_df |>
+  group_by(total_evictions) |>
+  summarise(number_of_buildings= n())
+
+total_violations <- summary_df |>
+  group_by(total_violations) |>
+  summarise(number_of_buildings=n())
+```
+
+# Data analysis section
+
+## Questions to explore:
+Question 1: What is the relationship between scheduled evictions and landlord violations? Is there a correlation between the two?
+To answer this I will need to compare whether a property has had a scheduled eviction and a landlord violation (yes/no). I will also need to compare the NUMBER of evictions with the number of landlord violations. I think I can scatterplot both of these (?)
+
+
+Question 2: What is the relationship between the number of landlord citations and home ownership? Are properties owned by LLCS or LPs more likely to have citations and have MORE citations than properties listed under an individual's name? What types of landlords/what landlords are most likely to have citations? Who are the "worst offenders"?
+
+To answer this I will need a dataframe that tells me the number of citations at a property under each owner. I can get the number of citations under each owner from the citations data, but I need to use the dc homeowners data to determine properties with no citations.
+
+My hypothesis: Property owners/LLCs with many properties are more likely to have citations at their properties than smaller landlords.
+ 
+## Tests to run:
+Question 1:
+- Scatterplot with a best fit line to look at relationship between scheduled evictions and landlord violations
+- Chi-square test to see if evictions are more likely to happen at addresses with housing violations
+- Correlation - Use aggregate counts by zip code, ward or census tract to see if there's a relationship between number of violations and number of evictions
+
+Regressions:
+Does average amount of fine (take the amount for each cap_id) predicts the eviction count or rate for a ward or zip code?
+Logistic regression - do specific factors influence evictions?
+
+Saving these here as part of my project but not really stats questions, more supplementary analysis
+- Look at this at the building level to identify eviction hot spots and how that has changed over time
+- Look at eviction rates over time -- maybe weekly and monthly?
+
+
+Question 2:
+I am not 100 percent sure how to tackle this - my instinct is to make a bar chart of LLC/LP owned units and avg citations per unit, government-owned properties and citations per unit, and single person landlords and citations per unit to compare but I don't know that that really makes sense?
+
+## Question 1 tests
+
+Scatterplot with a best fit line to look at relationship between scheduled evictions and landlord violations
+
+```{r}
+summary_df |>
+  ggplot(aes(x = total_violations, y = total_evictions)) +
+  geom_point() +
+  labs(x = "total_violations", y = "total_evictions", title = "evictions vs violations")
+```
+This doesn't really seem like it's super easy to analyze in this format given the few big outliers. Let's move on to the Chi Square test for now.
+
+
+Chi-square test to see if evictions are more likely to happen at addresses with housing violations
+```{r}
+#had gemini help me with this - i couldn't remember how to make yes/no cols)
+categorical_data <- summary_df |>
+  mutate(
+    has_evictions = ifelse(total_evictions > 0, "Yes", "No"),
+    has_violations = ifelse(total_violations > 0, "Yes", "No")
+  )
+```
+
+Gemini says I don't need to make my own expected frequencies table, and that the chi square test will do it for me. Is this true? I had it help me make one just in case, but wondering if that is a good way to streamline the process. 
+
+```{r}
+
+```
+
+
+- Correlation - Use aggregate counts by zip code, ward or census tract to see if there's a relationship between number of violations and number of evictions
