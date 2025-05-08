@@ -4,6 +4,8 @@ author: "Taylor Nichols"
 date: "2025-04-24"
 output: html_document
 ---
+NOTE FOR DEREK: For my tests, start at ## Question 1 tests
+
 
 Kinds of tests I want to do: I think it would be useful to see if there is a correlation between evictions and landlord violations, and then do a linear regression. Once I get my home owner data loaded in, I would also like to see what the relationship between each of the three variables is (we can do that with a multiple regression, right? or just scatterplots on both of them?)
 
@@ -21,6 +23,7 @@ Evictions data comes from the DC Office of the Tenant Advocate. The violations d
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
 ```
 
 ```{r load libraries}
@@ -30,6 +33,7 @@ library(janitor)
 library(ggplot2)
 library(readODS)
 library(vcd)
+library(tidygeocoder)
 ```
 
 ## This section is cleaning data and getting it ready to analyze
@@ -51,6 +55,30 @@ census <- read_csv("census_data.csv")
 
 ```{r}
 dc_homeowners <- bind_rows(homeowners_one, homeowners_two, homeowners_three, homeowners_four)
+```
+
+
+```{r}
+violations_zip <- df_violations |>
+  select(violation_address) |>
+  distinct() |>
+  mutate(full_address = paste(violation_address, "Washington, DC")) |>
+  geocode(
+    address = full_address,
+    method = "geocodio",
+    full_results = TRUE  # Add this parameter to get all available data
+  )
+```
+
+```{r}
+violations_zip <- violations_zip |>
+  select(violation_address, address_components.postdirectional, address_components.zip, lat, long) |>
+  rename(quadrant = address_components.postdirectional, zipcode = address_components.zip)
+```
+
+```{r}
+df_violations <- df_violations |>
+  left_join(violations_zip, by = c("violation_address"))
 ```
 
 Let's look at our eviction data
@@ -230,7 +258,7 @@ The evictions data is still pretty messy. Units will need more cleaning, but at 
 
 ```{r}
 df_violations_clean <- df_violations |>
-  select(s_no, owner, violation_address, unit, created_date, location, violation)
+  select(s_no, owner, violation_address, unit, zipcode, created_date, location, violation)
 ```
 
 Let's make a df that shows us how many violations have happened at each street address and how many units there are.
@@ -238,7 +266,7 @@ Let's make a df that shows us how many violations have happened at each street a
 ```{r}
 # Count total violations and unique units per address
 df_violations_summary <- df_violations_clean |>
-  group_by(violation_address) |>
+  group_by(violation_address, zipcode) |>
   summarise(
     total_violations = n(),
     unique_violation_units = n_distinct(unit, na.rm = TRUE),
@@ -265,7 +293,7 @@ evictions_summary <- eviction_data_clean |>
     clean_address
   )) |>
   # Then continue with your grouping and summarizing
-  group_by(full_address) |>
+  group_by(full_address, zipcode, ward) |>
   summarise(
     total_evictions = n(),
     unique_eviction_units = n_distinct(clean_unit, na.rm = TRUE),
@@ -299,13 +327,24 @@ total_violations <- summary_df |>
 ## Questions to explore:
 Question 1: What is the relationship between scheduled evictions and landlord violations? Is there a correlation between the two?
 To answer this I will need to compare whether a property has had a scheduled eviction and a landlord violation (yes/no). I will also need to compare the NUMBER of evictions with the number of landlord violations. I think I can scatterplot both of these (?)
+as landlord violations increase is it more likely that they will have an eviction?
+subset these outliers out
 
+i can run a chi-square test on wards if i can pull the old evictions data
+
+could run on landord violations
 
 Question 2: What is the relationship between the number of landlord citations and home ownership? Are properties owned by LLCS or LPs more likely to have citations and have MORE citations than properties listed under an individual's name? What types of landlords/what landlords are most likely to have citations? Who are the "worst offenders"?
+ANOVA - differences within groups
+
 
 To answer this I will need a dataframe that tells me the number of citations at a property under each owner. I can get the number of citations under each owner from the citations data, but I need to use the dc homeowners data to determine properties with no citations.
+dont neeed to make binary for that 
+between groups could be percentage, rate, etc.
 
 My hypothesis: Property owners/LLCs with many properties are more likely to have citations at their properties than smaller landlords.
+
+Question 3: As landlord violations increase is it more likely that they will have an eviction? - This can be a regression model - might be logsitic - let's ask gemini, should we do linear or logistic?
  
 ## Tests to run:
 Question 1:
@@ -314,20 +353,24 @@ Question 1:
 - Correlation - Use aggregate counts by zip code, ward or census tract to see if there's a relationship between number of violations and number of evictions
 
 Regressions:
+fallback - but if you're going to do a regression model
 Does average amount of fine (take the amount for each cap_id) predicts the eviction count or rate for a ward or zip code?
 Logistic regression - do specific factors influence evictions?
 
 Saving these here as part of my project but not really stats questions, more supplementary analysis
 - Look at this at the building level to identify eviction hot spots and how that has changed over time
+
+outlier detection - lots of ways we can do this -
 - Look at eviction rates over time -- maybe weekly and monthly?
+z-scores and standard deviation
 
 
 Question 2:
 I am not 100 percent sure how to tackle this - my instinct is to make a bar chart of LLC/LP owned units and avg citations per unit, government-owned properties and citations per unit, and single person landlords and citations per unit to compare but I don't know that that really makes sense?
 
-## Question 1 tests
+## Question 1 tests - DEREK START HERE
 
-Scatterplot with a best fit line to look at relationship between scheduled evictions and landlord violations
+### Test 1. Scatterplot 
 
 ```{r}
 summary_df |>
@@ -335,24 +378,110 @@ summary_df |>
   geom_point() +
   labs(x = "total_violations", y = "total_evictions", title = "evictions vs violations")
 ```
-This doesn't really seem like it's super easy to analyze in this format given the few big outliers. Let's move on to the Chi Square test for now.
+This doesn't really seem like it's super easy to analyze in this format given the few big outliers. It appears there isn't a super clear correlation between these two variables.
 
+### Test 2. Correlation
 
-Chi-square test to see if evictions are more likely to happen at addresses with housing violations
-```{r}
-#had gemini help me with this - i couldn't remember how to make yes/no cols)
-categorical_data <- summary_df |>
-  mutate(
-    has_evictions = ifelse(total_evictions > 0, "Yes", "No"),
-    has_violations = ifelse(total_violations > 0, "Yes", "No")
-  )
-```
-
-Gemini says I don't need to make my own expected frequencies table, and that the chi square test will do it for me. Is this true? I had it help me make one just in case, but wondering if that is a good way to streamline the process. 
+Use aggregate counts by zip code, ward or census tract to see if there's a relationship between number of violations and number of evictions.
 
 ```{r}
+evictions_zip <- evictions_summary |>
+  group_by(zipcode) |>
+  summarise(evictions = sum(total_evictions)) |>
+  mutate(zipcode = as.character(zipcode))
 
+violations_zip_agg <- df_violations_summary |>
+  group_by(zipcode) |>
+  summarise(violations = sum(total_violations))
+
+aggregates <- full_join(evictions_zip, violations_zip_agg, by = c("zipcode"))
 ```
 
+```{r}
+aggregates |>
+  ggplot(aes(x = violations, y = evictions)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "total_violations", y = "total_evictions", title = "evictions vs violations")
+```
+Ok this looks like something we can analyze more easily. 
 
-- Correlation - Use aggregate counts by zip code, ward or census tract to see if there's a relationship between number of violations and number of evictions
+### QUESTION: This is at the zip code level -- is it worth breaking it down to the tract level to get more data?
+Second question: Is this just where the most houses are?
+
+### Test 3: Linear regression
+
+```{r}
+model <- lm(`evictions` ~ `violations`, data = aggregates)
+summary(model)
+```
+Looks like our regression model is a pretty good fit, although those residuals seem concerning to me. The p value is tiny, meaning the relationship here is extremely statistically significant. The adjusted R-squared tells us that 92 percent of our data can be explained by the relationship between these two -- basically the relationship is really strong.
+
+Let's look at the residuals:
+Not sure what's happening here but I will maybe try to dive into it later.
+```{r}
+aggregates$predicted <- predict(model)
+
+# Calculate the residuals
+aggregates <- aggregates |> 
+  mutate(residual = `evictions` - predicted)
+
+# Sort the data frame by the absolute value of the residuals in descending order
+aggregates <- aggregates |>
+  mutate(abs_residual = abs(residual)) |>
+  arrange(desc(abs_residual))
+```
+
+Let's take a deep dive into evictions data.
+
+### Test 4. Boxplot and ANOVA
+
+```{r}
+# Create boxplot
+ggplot(evictions_summary, aes(x = ward, y = total_evictions, fill = ward)) +
+  geom_boxplot() +
+  labs(
+    title = "Evictions by Ward",
+    x = "Ward",
+    y = "Evictions"
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1")
+```
+This is interesting - I don't really know what it means but Ward 6 is standing out much more than it did before. It looks like a handful of crazy outlier buildings are driving up the numbers for wards 7 and 8. What does the bigger yellow box mean for a boxplot exactly?
+
+```{r}
+# Create boxplot
+ggplot(evictions_summary, aes(x = zipcode, y = total_evictions, fill = ward)) +
+  geom_boxplot() +
+  labs(
+    title = "Evictions by Zipcode",
+    x = "Zipcode",
+    y = "Evictions"
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1")
+```
+Is this anything? I don't really know how to read this. I dropped it to Claude and it basically identified outliers and said the large yellow box for ward 6 means higher median rates which is interesting and wasn't immediately apparent to me within my data. 
+
+That one random outlier in ward 1 with 50 evictions is something to look at. Ward 8 and ward 7 both have a handful of outliers driving up their numbers I think. Would be worth digging into those too.
+
+```{r anova-test}
+# Run one-way ANOVA
+anova_result <- aov(total_evictions ~ ward, data = evictions_summary)
+summary(anova_result)
+```
+
+The F-value is not crazy high, but I think given the smaller numbers we are working with it is still high. The p-value is very low, indicating the differences between zipcodes are statistically significant. 
+
+## Task 5: Compare the differences between specific pairs
+
+```{r post-hoc}
+# Tukey's HSD test to see which specific pairs of college types differ
+tukey_result <- TukeyHSD(anova_result)
+print(tukey_result)
+```
+There is a ton of info here. I think I am going to call this good for now and dig into this more when I tackle the rest of my project.
+
+I think from here we should bring in census data on race, median income and other factors at the tract level to determine what factors have the biggest influence on evictions. I also need to do some time analyses on evictions and calculate some z-scores. I feel pretty good about where I am at but would love some feedback if you see any red flags.
+
