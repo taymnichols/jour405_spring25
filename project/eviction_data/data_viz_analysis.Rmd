@@ -1,0 +1,656 @@
+---
+title: "data_viz_analysis.rmd"
+author: "Taylor Nichols"
+date: "2025-05-08"
+output: html_document
+---
+
+
+Evictions data comes from the DC Office of the Tenant Advocate. The violations data came from the DC Dept of Buildings Violations and Abatement Tool. <https://dataviz1.dc.gov/t/OCTO/views/DOBPublicDashboard/ViolationsAbatementLVT?%3AshowAppBanner=false&%3Adisplay_count=n&%3AshowVizHome=n&%3Aorigin=viz_share_link&%3Aembed=yes&%3Atoolbar=no>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+```
+
+```{r load libraries}
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(viridis)  # For better color palettes
+#install.packages("patchwork")
+library(patchwork) # For combining multiple plots
+library(janitor)
+library(readODS)
+library(tidygeocoder)
+library(tigris)
+library(lubridate)
+library(plotly)
+```
+
+```{r}
+dc_full_data <- read_csv("dc_full_data.csv")
+ward_summary_demographics <- read_csv("ward_summary_demographics.csv")
+df_violations_summary <- read_csv("df_violations_summary.csv")
+evictions_summary <- read_csv("evictions_summary.csv")
+eviction_data_clean <- read_csv("eviction_data_clean.csv")
+df_violations_clean <- read_csv("df_violations_clean.csv")
+```
+
+```{r}
+#install.packages("plotly")
+p <- ggplot(dc_full_data, aes(x = poverty_rate, y = violation_rate, 
+                            text = paste("ZIP:", zipcode, 
+                                        "\nPoverty Rate:", round(poverty_rate, 1),
+                                        "\nViolation Rate:", round(violation_rate, 1),
+                                        "\nEviction Rate:", round(eviction_rate, 1),
+                                        "\nTotal Violations:", violations))) +
+  geom_point(aes(size = total_households, color = eviction_rate), alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linetype = "dashed") +
+  scale_color_viridis_c(option = "magma")
+
+# Convert to interactive plot
+ggplotly(p, tooltip = "text")
+```
+
+```{r}
+evictions_weekly <- eviction_data_clean |>
+  mutate(week = floor_date(eviction_date, unit = "week")) |>
+           group_by(week) |>
+           summarise(evictions=n())
+
+evictions_weekly_ward <- eviction_data_clean |>
+  mutate(week = floor_date(eviction_date, unit = "week")) |>
+           group_by(week, ward) |>
+           summarise(evictions=n())
+
+violations_weekly <- df_violations_clean |>
+   mutate(week = floor_date(created_date, unit = "week")) |>
+           group_by(week) |>
+           summarise(violations=n())
+
+violations_weekly_ward <-df_violations_clean |>
+   mutate(week = floor_date(created_date, unit = "week")) |>
+           group_by(week, ward) |>
+           summarise(violations=n())
+
+weekly_summary <- full_join(evictions_weekly, violations_weekly, by = c("week"))
+weekly_ward_summary <- full_join(evictions_weekly_ward, violations_weekly_ward, by = c("week", "ward"))
+```
+
+```{r}
+weekly_ward_summary <- weekly_ward_summary %>%
+  mutate(
+    evictions = replace_na(evictions, 0),
+    violations = replace_na(violations, 0))
+
+weekly_summary <- weekly_summary %>%
+  mutate(
+    evictions = replace_na(evictions, 0),
+    violations = replace_na(violations, 0))
+```
+
+```{r}
+weekly_ward_summary <- weekly_ward_summary %>%
+  mutate(
+    # Ratio of violations to evictions (with safeguard against division by zero)
+    ratio = ifelse(evictions > 0, violations / evictions, NA),
+    # Simple difference
+    difference = violations - evictions
+  )
+
+weekly_summary <- weekly_summary %>%
+  mutate(
+    # Ratio of violations to evictions (with safeguard against division by zero)
+    ratio = ifelse(evictions > 0, violations / evictions, NA),
+    # Simple difference
+    difference = violations - evictions
+  )
+```
+
+```{r}
+weekly_summary_long <- weekly_summary %>%
+  pivot_longer(
+    cols = c(evictions, violations),
+    names_to = "type",
+    values_to = "count"
+  ) %>%
+  # Clean up the type names for better labeling
+  mutate(type = case_when(
+    type == "evictions" ~ "Evictions",
+    type == "violations" ~ "Violations",
+    TRUE ~ type
+  ))
+
+# Create the bar chart with trend lines
+ggplot(weekly_summary_long, aes(x = week, y = count, fill = type)) +
+  # Grouped bars
+  geom_col(position = "dodge", alpha = 0.8, width = 5) +  # Adjust width as needed for your date range
+  # Add trend lines
+  geom_smooth(aes(color = type), method = "loess", se = FALSE, linewidth = 1) +
+  # Customize colors
+  scale_fill_manual(values = c("Evictions" = "#E41A1C", "Violations" = "#377EB8")) +
+  scale_color_manual(values = c("Evictions" = "#E41A1C", "Violations" = "#377EB8")) +
+  # Format x-axis for dates
+  scale_x_date(date_breaks = "2 weeks", date_labels = "%b %d") +
+  # Add labels and title
+  labs(
+    title = "Weekly Evictions and Violations in DC",
+    subtitle = "With trend lines showing overall patterns",
+    x = "Week",
+    y = "Count",
+    fill = "Type",
+    color = "Trend"
+  ) +
+  # Improve appearance
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.minor = element_blank(),
+    legend.title = element_blank()
+  )
+```
+
+```{r}
+ggplot(weekly_summary, aes(x = week, y = evictions)) +
+  # Bars for evictions
+  geom_col(fill = "#E41A1C", alpha = 0.8, width = 5) +  # Adjust width for your date range
+  # Add trend line
+  geom_smooth(color = "#8B0000", method = "loess", se = FALSE, linewidth = 1) +
+  # Format x-axis for dates
+  scale_x_date(date_breaks = "2 weeks", date_labels = "%b %d") +
+  # Add labels and title
+  labs(
+    title = "Weekly Evictions in DC",
+    subtitle = "With trend line showing overall pattern",
+    x = "Week",
+    y = "Number of Evictions"
+  ) +
+  # Improve appearance
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.minor = element_blank()
+  )
+```
+
+```{r}
+# Calculate eviction rate per 1,000 residents
+ward_summary_demographics <- ward_summary_demographics %>%
+  mutate(eviction_rate = (evictions / total_population) * 1000)
+
+ggplot(ward_summary_demographics, aes(x = reorder(ward, eviction_rate), y = eviction_rate)) +
+  geom_col(aes(fill = median_income), alpha = 0.8, width = 0.7) +
+  scale_fill_viridis_c(option = "magma", 
+                      name = "Median Income",
+                      labels = scales::dollar_format()) +
+  # Add exact values at the top of each bar
+  geom_text(aes(label = sprintf("%.1f", eviction_rate)), 
+            vjust = -0.5, size = 3.5) +
+  # Improve labels and titles
+  labs(title = "Eviction Rate by Ward in DC",
+       subtitle = "Color indicates median household income",
+       x = "Ward", 
+       y = "Evictions per 1,000 residents") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.title = element_text(size = 11),
+    legend.position = "right",
+    panel.grid.major.x = element_blank()
+  )
+```
+
+
+
+```{r}
+demographic_factors <- ward_summary_demographics %>%
+  select(ward, eviction_rate, black_percentage, white_percentage, 
+         asian_percentage, hispanic_percentage) %>%
+  pivot_longer(cols = c(black_percentage, white_percentage, 
+                        asian_percentage, hispanic_percentage),
+               names_to = "demographic_group", 
+               values_to = "percentage") %>%
+  mutate(demographic_group = case_when(
+    demographic_group == "black_percentage" ~ "Black",
+    demographic_group == "white_percentage" ~ "White",
+    demographic_group == "asian_percentage" ~ "Asian",
+    demographic_group == "hispanic_percentage" ~ "Hispanic",
+    TRUE ~ demographic_group
+  ))
+
+# Create a visualization with demographic breakdown and eviction rates
+ggplot(demographic_factors, aes(x = ward, y = percentage, fill = demographic_group)) +
+  geom_bar(stat = "identity", position = "stack") +
+  # Add a line for eviction rate
+  geom_line(aes(y = eviction_rate, group = 1), color = "black", size = 1.2) +
+  geom_point(aes(y = eviction_rate), color = "black", size = 3) +
+  # Add labels for eviction rate
+  geom_text(aes(y = eviction_rate, label = sprintf("%.1f", eviction_rate)), 
+            vjust = -0.8, color = "black", size = 3.2) +
+  # Create a secondary axis for eviction rate
+  scale_y_continuous(
+    name = "Population Percentage",
+    sec.axis = sec_axis(~., name = "Evictions per 1,000 residents")
+  ) +
+  scale_fill_brewer(palette = "Set2", name = "Demographic Group") +
+  labs(title = "Racial Demographics and Eviction Rates by Ward",
+       subtitle = "Bars show demographic breakdown, line shows eviction rate",
+       x = "Ward") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.title = element_text(size = 11),
+    legend.position = "bottom"
+  )
+```
+
+```{r}
+# Create a scatterplot showing relationship between income and eviction rates
+ggplot(ward_summary_demographics, aes(x = median_income, y = eviction_rate)) +
+  # Add points with size representing population and color representing evictions
+  geom_point(aes(size = total_population, color = evictions), alpha = 0.8) +
+  # Add ward labels
+  geom_text(aes(label = ward), nudge_y = 0.3, size = 4) +
+  # Add trend line
+  geom_smooth(method = "lm", se = TRUE, color = "darkgray", linetype = "dashed") +
+  # Format scales
+  scale_x_continuous(labels = scales::dollar_format()) +
+  scale_color_viridis_c(option = "plasma", name = "Total Evictions") +
+  scale_size_continuous(name = "Ward Population", 
+                      labels = scales::comma_format()) +
+  # Improve labels and titles
+  labs(title = "Income vs. Eviction Rates by Ward",
+       subtitle = "Point size represents ward population, color shows total evictions",
+       x = "Median Household Income", 
+       y = "Evictions per 1,000 residents") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    axis.text = element_text(size = 10),
+    legend.position = "right"
+  )
+```
+
+
+```{r}
+# Load necessary libraries
+library(broom)
+library(ggplot2)
+library(dplyr)
+
+# Run multiple regression models to understand relationships beyond simple correlations
+model1 <- lm(eviction_rate ~ renter_pct + black_pct, data = dc_full_data)
+model2 <- lm(eviction_rate ~ renter_pct + black_pct + median_income, data = dc_full_data)
+model3 <- lm(eviction_rate ~ renter_pct + black_pct + median_income + poverty_rate, data = dc_full_data)
+
+# Summarize models
+model_summary <- bind_rows(
+  tidy(model1) %>% mutate(model = "Base Model"),
+  tidy(model2) %>% mutate(model = "With Income"),
+  tidy(model3) %>% mutate(model = "Full Model")
+)
+
+# Visualize regression coefficients to see which factors remain significant after controls
+ggplot(model_summary %>% filter(term != "(Intercept)"), 
+       aes(x = term, y = estimate, fill = model)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  geom_errorbar(aes(ymin = estimate - std.error, ymax = estimate + std.error),
+                position = position_dodge(width = 0.9), width = 0.2) +
+  coord_flip() +
+  labs(title = "Regression Coefficients for Eviction Rate Predictors",
+       subtitle = "Showing which factors remain significant after controlling for others",
+       y = "Coefficient Estimate") +
+  theme_minimal()
+
+# Create a residual map to show areas with higher/lower eviction rates than predicted
+dc_full_data$residuals <- residuals(model3)
+dc_full_data$predicted <- predict(model3)
+
+# Map of residuals
+ggplot() +
+  geom_sf(data = dc_full_data, 
+          aes(fill = residuals, 
+              text = paste("Zipcode:", zipcode,
+                           "<br>Actual Rate:", round(eviction_rate, 2),
+                           "<br>Predicted Rate:", round(predicted, 2),
+                           "<br>Residual:", round(residuals, 2))),
+          color = "white", size = 0.3) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0,
+                      name = "Residual\n(Actual - Predicted)") +
+  labs(title = "Where Eviction Rates Differ from Demographic Predictions",
+       subtitle = "Red areas have higher eviction rates than demographics would predict") +
+  theme_minimal()
+```
+```{r}
+# Calculate correlation coefficient
+correlation <- cor(dc_full_data$violations, dc_full_data$evictions, 
+                  use = "pairwise.complete.obs")
+
+# Create scatter plot
+ggplot(dc_full_data, aes(x = violations, y = evictions)) +
+  geom_point(aes(size = total_pop, color = black_pct), alpha = 0.7) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  geom_text(aes(label = zipcode), vjust = -0.8, size = 3, check_overlap = TRUE) +
+  annotate("text", x = max(dc_full_data$violations, na.rm = TRUE) * 0.8, 
+           y = max(dc_full_data$evictions, na.rm = TRUE) * 0.2,
+           label = paste("Correlation:", round(correlation, 2)),
+           size = 5, fontface = "bold") +
+  scale_color_viridis_c(name = "Black Population %") +
+  scale_size_continuous(name = "Total Population") +
+  labs(title = "Relationship Between Housing Violations and Evictions by Zipcode",
+       subtitle = "Point size represents population, color shows Black population percentage",
+       x = "Number of Housing Violations", 
+       y = "Number of Evictions") +
+  theme_minimal()
+
+# Create normalized version (per 1000 residents)
+ggplot(dc_full_data, aes(x = violation_rate, y = eviction_rate)) +
+  geom_point(aes(size = total_pop, color = median_income), alpha = 0.7) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  geom_text(aes(label = zipcode), vjust = -0.8, size = 3, check_overlap = TRUE) +
+  scale_color_viridis_c(name = "Median Income", 
+                      labels = scales::dollar_format()) +
+  labs(title = "Relationship Between Violation and Eviction Rates",
+       subtitle = "Controlling for population size",
+       x = "Housing Violations per 1,000 Residents", 
+       y = "Evictions per 1,000 Residents") +
+  theme_minimal()
+```
+
+```{r}
+# Create ratio of evictions to violations
+dc_full_data <- dc_full_data %>%
+  mutate(
+    eviction_violation_ratio = ifelse(violations > 0, evictions / violations, NA),
+    # Define categories
+    relationship_type = case_when(
+      eviction_rate > median(eviction_rate, na.rm = TRUE) & 
+        violation_rate > median(violation_rate, na.rm = TRUE) ~ "High Both",
+      eviction_rate > median(eviction_rate, na.rm = TRUE) & 
+        violation_rate <= median(violation_rate, na.rm = TRUE) ~ "High Eviction, Low Violation",
+      eviction_rate <= median(eviction_rate, na.rm = TRUE) & 
+        violation_rate > median(violation_rate, na.rm = TRUE) ~ "Low Eviction, High Violation",
+      TRUE ~ "Low Both"
+    )
+  )
+
+# Map the relationship types
+ggplot() +
+  geom_sf(data = dc_full_data, 
+          aes(fill = relationship_type),
+          color = "white", size = 0.2) +
+  scale_fill_brewer(palette = "Set1", name = "Relationship Type") +
+  labs(title = "Patterns of Eviction and Violation Rates Across DC",
+       subtitle = "Identifying areas with different eviction-violation relationships") +
+  theme_minimal()
+
+# Create a bivariate choropleth map
+dc_full_data <- dc_full_data %>%
+  mutate(
+    eviction_quantile = ntile(eviction_rate, 3),
+    violation_quantile = ntile(violation_rate, 3),
+    bivariate_class = paste0(eviction_quantile, "-", violation_quantile)
+  )
+
+# Create a bivariate color palette
+bivariate_colors <- c(
+  "1-1" = "#e8e8e8", "1-2" = "#ace4e4", "1-3" = "#5ac8c8",
+  "2-1" = "#dfb0d6", "2-2" = "#a5add3", "2-3" = "#5698b9", 
+  "3-1" = "#be64ac", "3-2" = "#8c62aa", "3-3" = "#3b4994"
+)
+
+# Create bivariate map
+ggplot() +
+  geom_sf(data = dc_full_data, 
+          aes(fill = bivariate_class),
+          color = "white", size = 0.2) +
+  scale_fill_manual(values = bivariate_colors, name = "Eviction-Violation\nRelationship") +
+  labs(title = "Bivariate Map of Eviction and Violation Rates",
+       subtitle = "Blue = High Violations, Purple = High Evictions, Dark = High Both") +
+  theme_minimal() +
+  # Add a custom legend explanation
+  annotate("text", x = Inf, y = -Inf, 
+           label = "Color shows relationship between eviction rates (vertical) and violation rates (horizontal)",
+           hjust = 1.1, vjust = -1, size = 3)
+```
+```{r}
+write_csv(dc_full_data, "dc_full_data.csv")
+```
+
+```{r}
+# Match violations and evictions by property address
+property_analysis <- merged_df |>
+  mutate(
+    # Replace NAs with 0 for violations
+    total_violations = replace_na(total_violations, 0),
+    total_evictions = replace_na(total_evictions, 0),
+    # Create binary indicators
+    has_violations = total_violations > 0,
+    has_evictions = total_evictions > 0
+  ) |>
+  # Rename for consistency with analysis examples
+  rename(
+    violation_count = total_violations,
+    eviction_count = total_evictions
+  )
+
+# Analyze the contingency table
+contingency_table <- with(property_analysis, table(has_violations, has_evictions))
+print(contingency_table)
+
+# Chi-square test
+chisq_test <- chisq.test(contingency_table)
+print(chisq_test)
+
+# Calculate relative risk
+relative_risk <- (contingency_table[2,2] / sum(contingency_table[2,])) / 
+                 (contingency_table[1,2] / sum(contingency_table[1,]))
+print(paste("Properties with violations are", round(relative_risk, 2), 
+            "times more likely to have evictions"))
+
+# Visualize property-level relationship
+ggplot(property_analysis, aes(x = violation_count, y = eviction_count)) +
+  geom_jitter(alpha = 0.5, width = 0.2, height = 0.2) +
+  geom_smooth(method = "loess", color = "red") +
+  scale_x_log10(labels = scales::comma_format()) +
+  scale_y_log10(labels = scales::comma_format()) +
+  labs(title = "Relationship Between Violations and Evictions at Property Level",
+       subtitle = "Each point represents a property address",
+       x = "Number of Violations (log scale)", 
+       y = "Number of Evictions (log scale)") +
+  theme_minimal()
+```
+
+```{r}
+# Focus on buildings with both violations and evictions
+hotspot_buildings <- property_analysis %>%
+  filter(has_violations & has_evictions) %>%
+  # Calculate total counts to find the most problematic buildings
+  arrange(desc(violation_count + eviction_count))
+
+# Display top hotspots
+top_hotspots <- hotspot_buildings %>%
+  slice_head(n = 20) %>%
+  mutate(
+    total_issues = violation_count + eviction_count,
+    # Create an anonymized building ID for privacy if needed
+    building_id = paste0("Building ", row_number())
+  ) %>%
+  select(building_id, clean_address, violation_count, eviction_count, total_issues) %>%
+  arrange(desc(total_issues))
+
+
+# Spatial clustering of hotspots by neighborhood or zipcode
+hotspot_by_area <- hotspot_buildings %>%
+  group_by(zipcode) %>%
+  summarize(
+    buildings_count = n(),
+    total_violations = sum(violation_count),
+    total_evictions = sum(eviction_count),
+    avg_violations_per_building = mean(violation_count),
+    avg_evictions_per_building = mean(eviction_count)
+  ) %>%
+  arrange(desc(buildings_count))
+
+# Visualize hotspot concentrations by zipcode
+ggplot(hotspot_by_area, aes(x = reorder(zipcode, buildings_count), y = buildings_count)) +
+  geom_col(fill = "darkred", alpha = 0.8) +
+  coord_flip() +
+  labs(title = "Number of Hotspot Buildings by Zipcode",
+       subtitle = "Areas with the most buildings having both violations and evictions",
+       x = "Zipcode",
+       y = "Number of Hotspot Buildings") +
+  theme_minimal()
+```
+
+```{r}
+# Focus on buildings with higher numbers of either violations or evictions
+high_frequency_buildings <- property_analysis %>%
+  filter(violation_count >= 3 | eviction_count >= 3)
+
+# Analyze correlation specifically among these high-frequency buildings
+high_freq_correlation <- cor(high_frequency_buildings$violation_count, 
+                            high_frequency_buildings$eviction_count, 
+                            use = "pairwise.complete.obs")
+
+# Visualize relationship for high-frequency buildings
+ggplot(high_frequency_buildings, aes(x = violation_count, y = eviction_count)) +
+  geom_point(aes(size = violation_count + eviction_count), 
+             alpha = 0.6, color = "purple") +
+  geom_smooth(method = "lm", color = "black", linetype = "dashed") +
+  scale_size_continuous(range = c(2, 10), name = "Total Issues") +
+  annotate("text", x = max(high_frequency_buildings$violation_count) * 0.8, 
+           y = max(high_frequency_buildings$eviction_count) * 0.9,
+           label = paste("Correlation:", round(high_freq_correlation, 2)),
+           size = 5, fontface = "bold") +
+  labs(title = "Relationship Between Violations and Evictions in High-Frequency Buildings",
+       subtitle = "Limited to buildings with at least 3 violations or 3 evictions",
+       x = "Number of Violations", 
+       y = "Number of Evictions") +
+  theme_minimal()
+
+# Create a quadrant analysis of high-frequency buildings
+high_frequency_buildings <- high_frequency_buildings %>%
+  mutate(
+    # Create quadrants based on median values
+    quadrant = case_when(
+      violation_count >= median(violation_count) & 
+        eviction_count >= median(eviction_count) ~ "High Violations, High Evictions",
+      violation_count >= median(violation_count) & 
+        eviction_count < median(eviction_count) ~ "High Violations, Low Evictions",
+      violation_count < median(violation_count) & 
+        eviction_count >= median(eviction_count) ~ "Low Violations, High Evictions",
+      TRUE ~ "Low Violations, Low Evictions"
+    )
+  )
+
+# Visualize quadrants
+ggplot(high_frequency_buildings, aes(x = violation_count, y = eviction_count, color = quadrant)) +
+  geom_point(alpha = 0.7, size = 3) +
+  geom_vline(xintercept = median(high_frequency_buildings$violation_count), 
+             linetype = "dashed", color = "gray40") +
+  geom_hline(yintercept = median(high_frequency_buildings$eviction_count), 
+             linetype = "dashed", color = "gray40") +
+  scale_color_brewer(palette = "Set1", name = "Quadrant") +
+  labs(title = "Quadrant Analysis of High-Frequency Buildings",
+       subtitle = "Identifying patterns among buildings with higher violation or eviction counts",
+       x = "Number of Violations", 
+       y = "Number of Evictions") +
+  theme_minimal()
+```
+
+```{r}
+eviction_data_monthly_ward <- evictions_weekly_ward |>
+ mutate(
+    year = year(week),
+    month = month(week),
+    month_name = month(week, label = TRUE, abbr = FALSE)
+  ) |>
+  filter(year == "2024") |>
+  group_by(month_name, ward) |>
+  summarise(total_evictions = sum(evictions)) |>
+  filter(!is.na(ward))
+```
+```{r}
+write_csv(eviction_data_monthly_ward, "eviction_data_monthly.csv")
+```
+
+```{r}
+# Reshape the data from long to wide format
+eviction_data_wide <- eviction_data_monthly_ward %>%
+  pivot_wider(
+    id_cols = month_name,
+    names_from = ward,
+    values_from = total_evictions,
+    values_fill = 0  # Fill NA values with 0
+  )
+
+# Make sure the months are in chronological order
+month_order <- c("January", "February", "March", "April", "May", "June", 
+                "July", "August", "September", "October", "November", "December")
+
+eviction_data_wide <- eviction_data_wide %>%
+  mutate(month_name = factor(month_name, levels = month_order)) %>%
+  arrange(month_name)
+
+```
+
+```{r}
+write_csv(eviction_data_wide, "eviction_data_wide.csv")
+```
+
+```{r}
+# Create a weekly eviction count dataset by ward for 2024
+eviction_by_week <- eviction_data_clean %>%
+  # Filter for 2024 data first to reduce processing
+  filter(year == 2024) %>%
+  # Remove any entries with NA ward values
+  filter(!is.na(ward)) %>%
+  # Create a proper week variable using ISO week standard
+  mutate(
+    week_num = isoweek(eviction_date),
+    # Create a week label for better readability
+    week_label = paste0("Week ", week_num),
+    # Create a week start date for better plotting
+    week_start_date = floor_date(eviction_date, "week", week_start = 1)
+  ) %>%
+  # Group by ward and week
+  group_by(ward, week_num, week_label, week_start_date) %>%
+  # Count evictions
+  summarise(total_evictions = n(), .groups = "drop")
+
+# Make sure we have all ward-week combinations, even if count is zero
+all_wards <- unique(eviction_data_clean$ward[!is.na(eviction_data_clean$ward)])
+all_weeks <- data.frame(
+  week_num = 1:53,  # ISO week can go up to 53 in some years
+  week_label = paste0("Week ", 1:53)
+)
+
+# Add week start dates to all_weeks
+first_day_of_year <- as.Date("2024-01-01")
+all_weeks$week_start_date <- first_day_of_year + 7 * (all_weeks$week_num - 1)
+
+# Create complete dataset with all ward-week combinations
+eviction_by_week_complete <- expand.grid(
+  ward = all_wards,
+  week_num = 1:53
+) %>%
+  left_join(all_weeks, by = "week_num") %>%
+  left_join(eviction_by_week, by = c("ward", "week_num", "week_label", "week_start_date")) %>%
+  # Replace NAs with zeros for weeks with no evictions
+  mutate(total_evictions = ifelse(is.na(total_evictions), 0, total_evictions))
+```
+
+
+```{r}
+write_csv(eviction_by_week_complete, "eviction_calendar.csv")
+```
+
+
+

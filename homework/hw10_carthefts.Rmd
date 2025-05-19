@@ -55,7 +55,6 @@ ggplot(aes(x = month, y = total)) +
 Let's add some stats to that process - mean and standard deviation - and calculate the standard error and 95% confidence intervals. We only have a small number of months, so we'll calculate the margin of error to account for that. 
 
 ```{r}
-
 theft_summary <- car_thefts |> 
   summarize(
     mean_thefts = mean(total),
