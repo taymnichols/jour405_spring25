@@ -25,6 +25,10 @@ library(tidycensus)
 
 Evictions data comes from the DC Office of the Tenant Advocate. The violations data came from the DC Dept of Buildings Violations and Abatement Tool. <https://dataviz1.dc.gov/t/OCTO/views/DOBPublicDashboard/ViolationsAbatementLVT?%3AshowAppBanner=false&%3Adisplay_count=n&%3AshowVizHome=n&%3Aorigin=viz_share_link&%3Aembed=yes&%3Atoolbar=no>
 
+Evictions include all scheduled evictions posted from the OTA since Nov. 2023. It was originally sourced from this scraper <https://raw.githubusercontent.com/taymnichols/eviction_notice_bot_taymnichols/refs/heads/main/eviction_data_ward.csv> but I geocoded it using Geocodio through their website to get the zip codes.
+
+Landlord violations include all landlord violations reported to the DC Dept of Buildings available on their Violations and Abatement tool.
+
 ### Load and Clean Data
 
 ```{r read in violations data}
