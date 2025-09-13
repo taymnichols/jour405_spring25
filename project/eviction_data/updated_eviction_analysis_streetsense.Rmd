@@ -1,0 +1,773 @@
+---
+title: "evictions_data_analysis_updated"
+author: "Taylor Nichols"
+date: "2025-09-11"
+output: html_document
+---
+---
+title: "stats_final_evictions.rmd"
+author: "Taylor Nichols"
+date: "2025-05-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+```
+
+```{r load libraries}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(ggplot2)
+library(readODS)
+library(vcd)
+library(tidygeocoder)
+library(corrplot)
+library(tidycensus)
+```
+
+
+Evictions data comes from the DC Office of the Tenant Advocate. The violations data came from the DC Dept of Buildings Violations and Abatement Tool. <https://dataviz1.dc.gov/t/OCTO/views/DOBPublicDashboard/ViolationsAbatementLVT?%3AshowAppBanner=false&%3Adisplay_count=n&%3AshowVizHome=n&%3Aorigin=viz_share_link&%3Aembed=yes&%3Atoolbar=no>
+
+Evictions include all scheduled evictions posted from the OTA since Sept. 2023 - some of these evictions might be from earlier, but right now no dates before Sept. 2023 are reading in correctly. It is sourced and cleaned via this web scraper: <https://raw.githubusercontent.com/taymnichols/eviction_notice_bot_taymnichols/refs/heads/main/eviction_data_ward.csv>.
+
+Landlord violations include all landlord violations reported to the DC Dept of Buildings available on their Violations and Abatement tool.
+
+### Load and Clean Data
+
+```{r read in violations data}
+df_violations <- read_delim("detailed_landlord_violations.csv", 
+                           delim = "\t",  #set tab as delimiter
+                           locale = locale(encoding = "UTF-16LE"),
+                           show_col_types = FALSE) |> clean_names() |>
+                            mutate(created_date = case_when(str_detect(created_date, "^\\d{1,2}/\\d{1,2}/\\d{4}$") ~ mdy(created_date)))
+```
+
+```{r geocode violations data}
+# violations_geocoded <- df_violations |>
+#   select(violation_address) |>
+#   distinct() |>
+#   mutate(address_base = paste(violation_address, "Washington, DC")) |>
+#   geocode(
+#     address = address_base,
+#     method = "geocodio",
+#     full_results = TRUE  # Add this parameter to get all available data
+#   )
+```
+
+```{r}
+# violations_geocoded <- violations_geocoded |>
+#   select(violation_address, address_components.postdirectional, address_components.zip, lat, long) |>
+#   rename(quadrant = address_components.postdirectional, zipcode = address_components.zip)
+```
+
+```{r}
+#write_csv(violations_geocoded, "violations_geocoded.csv")
+```
+
+We need to come back later and update our violations data - right now it only goes to March 2025. 
+
+```{r read in geocoded data}
+violations_zip <- read_csv("violations_geocoded.csv")
+eviction_data <- read_csv("https://raw.githubusercontent.com/taymnichols/eviction_notice_bot_taymnichols/refs/heads/main/eviction_data_ward.csv")
+census_ward <- read_csv("census_data.csv")
+```
+
+
+```{r}
+df_violations <- df_violations |>
+  left_join(violations_zip, by = c("violation_address"))
+```
+
+Let's look at our eviction data and get some basic diagnostics.
+
+```{r}
+eviction_data
+
+eviction_data |>
+  group_by(month, year) |>
+  summarise(count=n()) |>
+  arrange((year), (month))
+
+eviction_data |>
+  filter(!is.na(eviction_date)) |>
+  group_by(month, year) |>
+  summarise(count=n()) |>
+  arrange(desc(count))
+
+yoy_analysis <- eviction_data |>
+  filter(!is.na(eviction_date)) |>
+  group_by(month, year) |>
+  summarise(count = n(), .groups = 'drop') |>
+  pivot_wider(names_from = year, values_from = count, names_prefix = "year_") |>
+  mutate(
+    # 2024 to 2025 comparison
+    change_24_25 = year_2025 - year_2024,
+    pct_change_24_25 = case_when(
+      is.na(year_2024) | is.na(year_2025) ~ NA_real_,
+      year_2024 == 0 ~ NA_real_,
+      TRUE ~ round((year_2025 - year_2024) / year_2024 * 100, 2)
+    )
+  ) |>
+  arrange(month)
+
+print(yoy_analysis)
+```
+
+Our eviction data spans from late Sept. 2023 to early October 2025. It includes address, case number, eviction date, and other geocoding info. It has been deduplicated based on case number and eviction date. For rows with no case number, I deduplicated by address and eviction date.
+
+When I tried to add in the historical data, I was largely unsuccessful. I got some data from Sept. 2023 to load, but we’re missing:
+Second half of October 2023
+Second half of Dec 2023
+First half of Nov 2024
+Second half of March 2025
+
+I would be pretty careful about what we can say on change in evictions over time because of this. Hopefully Aarushi can take a look at the scraper and identify what is going wrong, but for now that is where we are at. I can’t be 100 percent sure we aren’t losing big chunks of data elsewhere (there are about 1600 evictions that were successfully scraped but the date didn’t get pulled correctly - these don’t show up in the table but we can still analyze them for OVERALL trends without taking date into account unless Aarushi has an objection – will defer to him on that for a gut check. I did not see any other big obvious chunks of data missing.
+
+That being said, it looks like there has been some big increases from 2024 to 2025, although we are missing some data. Since most of 2024 and 2025 are ok data-wise (as far as we know), it appears that:
+1. There was a big increase in evictions from Jan. 2024 to Jan. 2025. I double-checked the PDFs and this is accurate based on what the OTA published (latest data available for jan 2024 goes to the 25th <https://web.archive.org/web/20240319162620/https://ota.dc.gov/sites/default/files/dc/sites/ota/page_content/attachments/WEBSITE%20Scheduled%20Evictions%20until%201-25-23.pdf>). Based on what the OTA is posting, there were 230 more evictions in Jan 2025 than the year before. 
+
+2. Big spike in September of this year compared to last -- we should double check the PDFs to make sure we're not missing data, but it looks like there were nearly 500 more evictions in Sept. of this year than last. This is probably worth digging into given the chaos of the last few months in DC.
+
+3. Basically every month we have complete data for in 2024 and 2025 saw more evictions this year than the year before.
+
+We should compare the entirety of 2024 (through October) and 2025 when we're able to update the march 2025 data to see how things have changed since last year.
+Now let's look at our violations data:
+
+```{r}
+df_violations
+```
+
+This data spans from march 2018 to march 2025. We also have owner, violation address, unit, cap_id (not sure what this is), floor, location, violation and fine amt.
+
+I think we can assume that addresses with units are likely owned by the same owner (unless they're condos -- maybe this isn't a safe assumption, actually.) Our landlord data is stored with unit as a separate column, so let's make our data format match.
+
+```{r}
+#filter down evictions data to cleaner dataset/remove unwanted columns
+eviction_data_clean <- eviction_data |>
+  select(case_number, address_original, address_cleaned, address_base, unit, 
+         quad, zipcode, eviction_date, lat, lng, ward, year, month_name) |>
+    filter(!is.na(address_base),
+         !str_detect(address_original, "(?i)\\bnan\\b|VACANT\\s+LOT")) |>
+  mutate(unit_clean = str_replace_all(unit, "#", ""))
+```
+
+```{r}
+df_violations_clean <- df_violations |>
+  select(s_no, owner, violation_address, unit, zipcode, created_date, location, violation)
+```
+
+Let's make a df that shows us how many violations have happened at each street address and how many units there are.
+
+```{r}
+# Count total violations and unique units per address
+df_violations_summary <- df_violations_clean |>
+  group_by(violation_address, zipcode) |>
+  summarise(
+    total_violations = n(),
+    unique_violation_units = n_distinct(unit, na.rm = TRUE),
+    unit_violation_list = paste(unique(na.omit(unit)), collapse = ", "),
+    .groups = "drop"
+  )
+```
+
+
+Now, let's join our violations to our evictions data
+
+```{r}
+evictions_summary <- eviction_data_clean |>
+  group_by(address_base, zipcode, ward) |>
+  summarise(
+    total_evictions = n(),
+    unique_eviction_units = n_distinct(unit_clean, na.rm = TRUE),
+    eviction_unit_list = toString(na.omit(unique(unit_clean))),
+    .groups = "drop"
+  ) |>
+  mutate(total_evictions = replace_na(total_evictions, 0))
+
+df_violations_summary <- df_violations_summary |>
+  rename(address_base = violation_address) |>
+  mutate(
+    total_violations = replace_na(total_violations, 0)
+  )
+
+summary_df <- full_join(df_violations_summary, evictions_summary, by = c("address_base", "zipcode"))
+```
+
+### NOTE FOR AARUSHI:The code should run below, but I haven't updated my analysis of this yet after incorporating the new data. If you can get the rows with missing dates to scrape correctly, let's take a fresh look at this data analysis below. If you have time to do it next week, that's great, but if not I can take a look when I get back.
+
+Let's get a sense of what our data looks like for evictions and violations and add census data. Let's make dataframes so we can understand what our data looks like at the:
+
+1. building level
+2. zipcode level
+3. ward level
+
+
+```{r}
+#ward level
+evictions_summary <- evictions_summary |>
+    mutate(zipcode = as.character(zipcode))
+
+df_violations_summary <- df_violations_summary |>
+    mutate(zipcode = as.character(zipcode))
+
+
+merged_df <- evictions_summary |>
+  full_join(df_violations_summary, by = c("address_base", "zipcode"))
+
+zip_summary <- merged_df |>
+  group_by(zipcode) |>
+  summarize(
+    evictions = sum(total_evictions, na.rm = TRUE),
+    violations = sum(total_violations, na.rm = TRUE)
+  )
+
+ward_summary <- merged_df |>
+  group_by(ward) |>
+  summarize(
+    evictions = sum(total_evictions, na.rm = TRUE),
+    violations = sum(total_violations, na.rm = TRUE)
+  )
+
+ward_summary_demographics <- ward_summary |>
+  left_join(census_ward, by = c("ward"))
+```
+
+
+```{r}
+#write_csv(ward_summary_demographics, "ward_summary_demographics.csv")
+```
+
+Now let's do it by zipcode.
+
+```{r}
+evictions_zip <- evictions_summary |>
+  group_by(zipcode) |>
+  summarise(evictions = sum(total_evictions)) |>
+  mutate(zipcode = as.character(zipcode))
+
+violations_zip_agg <- df_violations_summary |>
+  group_by(zipcode) |>
+  summarise(violations = sum(total_violations))
+```
+
+```{r}
+# #Had Claude help with this
+# #find dc zipcodes
+# dc_zip_data <- get_acs(
+#   geography = "zcta",
+#   variables = "B01001_001", # total pop
+#   year = 2020
+# )
+# 
+# # Extract just the GEOID values as a character vector
+# dc_zips <- dc_zip_data |>
+#   filter(str_detect(NAME, "ZCTA5 20")) |> # DC ZIP codes start with 20
+#   pull(GEOID)
+# 
+# # STEP 2: Get renter households by ZIP code with geometry
+# dc_renter_households_zip <- get_acs(
+#   geography = "zcta",
+#   variables = "B25003_003", # Renter-occupied households
+#   year = 2020,
+#   geometry = TRUE
+# )
+# 
+# # Filter to DC ZIPs and add zipcode column
+# dc_renter_households_zip <- dc_renter_households_zip |>
+#   filter(GEOID %in% dc_zips) |>
+#   # Use mutate with sf object
+#   mutate(zipcode = str_replace(NAME, "ZCTA5 ", ""))
+# 
+# # STEP 3: Get demographic variables for the same ZIPs
+# census_variables <- c(
+#   # Housing
+#   total_households = "B25003_001",
+#   renter_households = "B25003_003",
+# 
+#   # Income
+#   median_income = "B19013_001",
+# 
+#   # Poverty status
+#   poverty_total = "B17001_001",      # Total population for poverty status determination
+#   poverty_below = "B17001_002",      # Population below poverty level
+# 
+#   # Race and ethnicity
+#   total_pop = "B01001_001",
+#   nh_white_alone = "B03002_003",       # White alone, not Hispanic or Latino
+#   black_alone = "B02001_003",          # Black or African American
+#   asian_alone = "B02001_005",          # Asian alone
+#   hispanic_total = "B03002_012")      # Hispanic or Latino (of any race)
+# 
+# # Fetch demographic data without geometry
+# dc_demo_data <- get_acs(
+#   geography = "zcta",
+#   variables = census_variables,
+#   year = 2020,
+#   geometry = FALSE
+# ) |>
+#   filter(GEOID %in% dc_zips)
+# 
+#   # Reshape the data to wide format
+#   dc_demo_wide <- dc_demo_data |>
+#   # First create a unique identifier with GEOID and variable
+#   mutate(id = paste(GEOID, variable, sep = "_")) |>
+#   # Then reshape to wide format
+#   select(GEOID, variable, estimate) |>
+#   pivot_wider(
+#     id_cols = GEOID,
+#     names_from = variable,
+#     values_from = estimate
+#   )
+# 
+# # Calculate derived percentages
+# dc_demo_wide <- dc_demo_wide |>
+#   mutate(
+#     # Poverty percentage
+#     poverty_rate = (poverty_below / poverty_total) * 100,
+# 
+#     # Race percentages (all races including Hispanic)
+#     nh_white_alone_pct = (nh_white_alone / total_pop) * 100,
+#     black_alone_pct = (black_alone / total_pop) * 100,
+#     asian_alone_pct = (asian_alone / total_pop) * 100,
+#     hispanic_pct = (hispanic_total / total_pop) * 100,
+# 
+#     # Housing percentages
+#     renter_pct = (renter_households / total_households) * 100
+#   ) |>
+#   rename(zipcode = GEOID)
+# 
+# dc_full_data <- zip_summary |>
+#   left_join(dc_demo_wide, by = c("zipcode"))
+# 
+# dc_full_data <- dc_full_data |>
+#   mutate(eviction_rate = evictions/renter_households*100,
+#          violation_rate = violations/renter_households*100)
+# 
+# write_csv(dc_full_data, "dc_full_data.csv")
+```
+
+```{r}
+dc_full_data <- read_csv("dc_full_data.csv")
+```
+### DESCRIPTIVE STATISTICS
+
+First, let's take a look at how our data is distributed by building for evictions and violations.
+
+#### Building level 
+I want to get a sense of what violations and evictions look like per building - do most buildings have very few violations? 
+
+```{r}
+ evictions_summary |>
+  ungroup() |>
+  filter(total_evictions > 0) |>
+  summarise(
+    mean_evictions = mean(total_evictions, na.rm = TRUE),
+    median_evictions = median(total_evictions, na.rm = TRUE),
+    sd_evictions = sd(total_evictions, na.rm = TRUE),
+    total_properties = n(),
+    min_evictions = min(total_evictions, na.rm = TRUE),
+    max_evictions = max(total_evictions, na.rm = TRUE))
+
+df_violations_summary |>
+  ungroup() |>
+  filter(total_violations > 0) |>
+  summarise(
+    mean_violations = mean(total_violations, na.rm = TRUE),
+    median_violations = median(total_violations, na.rm = TRUE),
+    sd_violations = sd(total_violations, na.rm = TRUE),
+    total_properties = n(),
+    min_violations = min(total_violations, na.rm = TRUE),
+    max_violations = max(total_violations, na.rm = TRUE))
+
+```
+
+Looks like for both datasets, the data is largely clustered toward the beginning (basically few evicitions and few violations, not a ton of frequent flyers). However, we clearly have some big outliers. Let's make a histogram to get a sense of the distribution.
+
+```{r}
+evictions_summary |>
+  ggplot() +
+  geom_histogram(aes(x = total_evictions), binwidth = 1) +
+  geom_vline(aes(xintercept = mean(total_evictions)), color = "red", linetype = "dashed", size = 1) +  
+  geom_vline(aes(xintercept = mean(total_evictions)-sd(total_evictions)), color = "blue", linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = mean(total_evictions)+sd(total_evictions)), color = "blue", linetype = "dashed", size = 1)
+
+df_violations_summary |>
+  ggplot() +
+  geom_histogram(aes(x = total_violations), binwidth = 8) +
+  geom_vline(aes(xintercept = mean(total_violations)), color = "red", linetype = "dashed", size = 1) +  
+  geom_vline(aes(xintercept = mean(total_violations)-sd(total_violations)), color = "blue", linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = mean(total_violations)+sd(total_violations)), color = "blue", linetype = "dashed", size = 1)
+```
+Yep, as we saw in the stats we calculated earlier, both of our datasets are extremely skewed to the left. They do not have a normal distribution as the vast majority of our data is focused in the 1-5 range for evictions and the 1-15 range for violations. However, we have some pretty significant outliers that are creating a barely visible long tail to the right. Let's generate the quartiles to get some more info on distribution.
+
+```{r}
+evictions_summary |>
+  ungroup() |>
+  summarise(
+    q1 = quantile(total_evictions, 0.25),
+    q2 = quantile(total_evictions, 0.50),
+    q3 = quantile(total_evictions, 0.75),
+    IQR(total_evictions)
+  )
+
+df_violations_summary |>
+  ungroup() |>
+  summarise(
+    q1 = quantile(total_violations, 0.25),
+    q2 = quantile(total_violations, 0.50), 
+    q3 = quantile(total_violations, 0.75),
+    IQR(total_violations)
+  )
+```
+
+Looks like evictions are so heavily skewed to the left that our upper quartile is 2 evictions, but we know from our earlier analaysis that our biggest outlier is 51 evictions. For violations, it looks like our median is 4 and our upper quartile is 9 violations. However, we know from our earlier statistics that our maximum is 282 violations. Anyways, what we know is this data is HEAVILY skewed to the left and accounting for that might be tricky.
+
+#### Zip Level
+
+```{r}
+zip_summary |>
+  summarise(
+    mean_evictions = mean(evictions, na.rm = TRUE),
+    median_evictions = median(evictions, na.rm = TRUE),
+    sd_evictions = sd(evictions, na.rm = TRUE),
+    total_zips = n(),
+    min_evictions = min(evictions, na.rm = TRUE),
+    max_evictions = max(evictions, na.rm = TRUE),
+    mean_violations = mean(violations, na.rm = TRUE),
+    median_violations = median(violations, na.rm = TRUE),
+    sd_violations = sd(violations, na.rm = TRUE),
+    min_violations = min(violations, na.rm = TRUE),
+    max_violations = max(violations, na.rm = TRUE))
+
+```
+NEED TO UPDATE THIS: 
+
+At the zip code level, the average is 326 evictions but the median is 181. This tells me there are some outliers skewing the data. The SD is 256, which is confusing because we can't have negative violations. There are 23 zipcodes and we have one zip code with no evictions and one with 814, which is a lot of variation. 
+
+It's a similar story for landlord violations. The mean is 1941 but the median is 786 and the SD is 2532. We have one zip code with 1 violation and one with 7,886. Huge variation here.
+
+I am not 100 percent sure if this makes sense to do on aggregate data. It might make more sense to do these calculations on the eviction / violation rate per rental house rather than the raw count. Let's do that and see what we get.
+
+```{r}
+dc_full_data |>
+  summarise(
+    mean_eviction_rate = mean(eviction_rate, na.rm = TRUE),
+    median_eviction_rate = median(eviction_rate, na.rm = TRUE),
+    sd_eviction_rate = sd(eviction_rate, na.rm = TRUE),
+    total_zips = n(),
+    min_eviction_rate = min(eviction_rate, na.rm = TRUE),
+    max_eviction_rate = max(eviction_rate, na.rm = TRUE),
+    mean_violation_rate = mean(violation_rate, na.rm = TRUE),
+    median_violation_rate = median(violation_rate, na.rm = TRUE),
+    sd_violation_rate = sd(violation_rate, na.rm = TRUE),
+    min_violation_rate = min(violation_rate, na.rm = TRUE),
+    max_violation_rate = max(violation_rate, na.rm = TRUE))
+```
+This is a little bit easier to digest because it isn't so wildly skewed based on the rental market of each zip - it also looks like we dropped a zip code with no renters, no evictions and one violation (not sure how this happened but somewhere in my data joining I think we lost it.)
+
+Based on this, it looks like our zipcodes have a mean eviction rate of about 2.5 per rental household, a min of .59 and a max of nearly 6 per household. The mean violation rate is 21 but the median is 12.6, a pretty big difference. We have a min of .39 and a max of nearly 56, so we still have a lot of variation here. Let's make a histogram to look at the distribution.
+
+```{r}
+dc_full_data |>
+  ggplot() +
+  geom_histogram(aes(x = eviction_rate), binwidth = .5) +
+  geom_vline(aes(xintercept = mean(eviction_rate)), color = "red", linetype = "dashed", size = 1) +  
+  geom_vline(aes(xintercept = mean(eviction_rate)-sd(eviction_rate)), color = "blue", linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = mean(eviction_rate)+sd(eviction_rate)), color = "blue", linetype = "dashed", size = 1)
+
+dc_full_data |>
+  ggplot() +
+  geom_histogram(aes(x = violation_rate), binwidth = 1) +
+  geom_vline(aes(xintercept = mean(violation_rate)), color = "red", linetype = "dashed", size = 1) +  
+  geom_vline(aes(xintercept = mean(violation_rate)-sd(violation_rate)), color = "blue", linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = mean(violation_rate)+sd(violation_rate)), color = "blue", linetype = "dashed", size = 1)
+```
+Yep, both of our datasets are still pretty heavily skewed to the left with a longer tail to the right. These histograms look a bit wonky so I feel like maybe it doesn't make as much sense to use them for this aggregate data, but it does help visualize what is going on in our datasets.
+
+
+### Two additional statistical techniques that we've covered this semester 
+
+#### Multiple regression analysis on zipcodes and other demographics
+
+Task 1: Exploratory Data Analysis
+
+```{r}
+#get rid of extra columns
+dc_full_data_clean <- dc_full_data |>
+  select(zipcode, total_pop, median_income, nh_white_alone_pct, black_alone_pct, hispanic_pct, renter_pct, poverty_rate, evictions, violations, eviction_rate, violation_rate) |>
+  rename(pct_white = nh_white_alone_pct, pct_black = black_alone_pct) |>
+  filter(zipcode != "20052") #filtering this out since it has limited data
+```
+
+Let's figure out what of our variables are closely correlated to each other that we could potentially remove.
+
+```{r}
+# Summary statistics
+summary(dc_full_data_clean)
+
+# Create correlation matrix
+selected_vars <- dc_full_data_clean |> 
+  select(total_pop, median_income, pct_white, renter_pct, eviction_rate, violation_rate, poverty_rate)
+
+correlation_matrix <- cor(selected_vars)
+print(correlation_matrix)
+
+# Visualize correlation matrix
+corrplot(correlation_matrix, method = "circle")
+
+# Create scatterplots
+dc_full_data_clean |>
+  pivot_longer(cols = c(total_pop, median_income, pct_white, renter_pct, violation_rate),
+               names_to = "variable", 
+               values_to = "value") |>
+  ggplot(aes(x = value, y = eviction_rate)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~ variable, scales = "free_x") +
+  labs(title = "Relationship between predictors and evictions",
+       y = "Evictions")
+```
+ I initially included both evictions and violations alongside eviction and violation rate, but I think we should stick to the rate since the raw number is basically just a proxy for the number of renters in a zipcode. Looks like we can probably lose either median income or poverty rate.
+ 
+Based on the scatterplots, violation and eviction rates are pretty closely correlated. Interestingly, renter percent is NOT closely correlated -- this tells me that eviction and violation rates are correlated in a way that doesn't relate to how many people in the zip are renters. Total population doesn't seem strongly correlated, but percent white definitely is. Median income also appears to have a relationship.
+
+Task 2: Initial Model Evaluation
+
+Now let's create our initial linear model to analyze how each of these factors influence eviction rates.
+
+```{r}
+# Build initial model with all predictors
+initial_model <- lm(eviction_rate ~ total_pop + median_income + pct_white + renter_pct + poverty_rate + violation_rate, data = dc_full_data_clean)
+
+summary(initial_model)
+```
+Evaluating our model, it looks like our residuals are not TOO far off. Our min is -1.12 and our max is 2.73 which is kind of a big range for our dataset but the 1st-3rd quartiles are not a super wide range. It looks like based on the median (-.23) our model is fairly well centered around our actual data points. Based on our coefficients, it looks like total pop and median income don't have a super significant correlation with eviction rates. However, percent white, renter percent and violation rate all seem to have a bigger impact. None of these are statistically significant except for violation rate, which is interesting. I added poverty_rate back in after doing this the first time to see how it differed from median income. It looks like it has a bigger impact than median income, but is not statistically significant.
+
+The model seems to be an okay fit -- the multiple R squared tells us 77 percent of variability in eviction rates is explained by our model. However, only 69 percent of our data can be explained by these variables. The model is very statistically significant. This model seems to be a good fit, but not a great fit.
+
+Task 3: Model Refinement
+
+Let's tinker with the model to see if we can make it a better fit.
+
+```{r}
+#initial model 
+initial_model <- lm(evictions ~ total_pop + median_income + pct_white + renter_pct + poverty_rate + violation_rate, data = dc_full_data_clean)
+
+# Model 2 - removing total pop and median income, adding pct_black instead of pct_white
+model2 <- lm(eviction_rate ~  pct_black + renter_pct + poverty_rate + violation_rate, data = dc_full_data_clean)
+
+summary(model2)
+
+# Model 3 - remove pct white
+model3 <- lm(evictions ~ total_pop + median_income + renter_pct + poverty_rate + violation_rate, data = dc_full_data_clean)
+
+summary(model3)
+
+# Model 4 - remove total pop, pct white, violation rate, add pct black
+model4 <- lm(eviction_rate ~ median_income + renter_pct + pct_black + poverty_rate , data = dc_full_data_clean)
+
+summary(model4)
+
+# Model 5 - remove total pop, pct white, violation rate, add pct black and look at evictions rather than eviction rate
+model5 <- lm(evictions ~ median_income + renter_pct + pct_black + poverty_rate , data = dc_full_data_clean)
+summary(model5)
+
+# Model 6 - tweaked based on the results of the last ones, added in violations and found a working model!
+model6 <-  lm(evictions ~ median_income + renter_pct + pct_black + violations, data = dc_full_data_clean)
+
+summary(model6)
+
+
+
+# Compare models
+cat("Model 1 (Full model) - Adjusted R-squared:", summary(initial_model)$adj.r.squared, "\n")
+cat("Model 2 - Adjusted R-squared:", summary(model2)$adj.r.squared, "\n")
+cat("Model 3 - Adjusted R-squared:", summary(model3)$adj.r.squared, "\n")
+cat("Model 4 - Adjusted R-squared:", summary(model4)$adj.r.squared, "\n")
+cat("Model 5 - Adjusted R-squared:", summary(model5)$adj.r.squared, "\n")
+cat("Model 6 - Adjusted R-squared:", summary(model6)$adj.r.squared, "\n")
+
+# Create comparison chart
+model_names <- c("Full model", "Model 2", "Model 3", "Model 4", "Model 5", "Model 6")
+adj_r_squared <- c(summary(initial_model)$adj.r.squared,
+                   summary(model2)$adj.r.squared,
+                   summary(model3)$adj.r.squared,
+                   summary(model4)$adj.r.squared,
+                   summary(model5)$adj.r.squared,
+                   summary(model6)$adj.r.squared)
+
+model_comparison <- data.frame(Model = model_names, Adjusted_R_squared = adj_r_squared)
+ggplot(model_comparison, aes(x = reorder(Model, Adjusted_R_squared), y = Adjusted_R_squared)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Model Comparison by Adjusted R-squared",
+       x = "Model")
+```
+Even though violation rate was the most statistically significant initially, taking it out seemed to improve our model the most. Swapping out pct_white for pct_black also seemed to help a lot. Overall, it looks like our fourth model is most accurate, accounting for 82 percent of our data and with more focused residuals. It's still statistically significant and it looks like race is the biggest factor in predicting eviction rates for zipcodes.
+
+I made a final model, 5, to look at how these factors influence evictions rather than eviction rates. It looks like while this model has a lower adjusted R squared, It has more statistically significant coefficients. I think this model is the best option given this information. It looks like renter percent, median income and percent black have the biggest impact (all positive) on number of evictions.
+
+After I did all of this, I went back and reviewed what I had done and tinkered with a last and final model. I switched all my models from predicting eviction rate to predicting evictions, and in the last model I added in violations instead of poverty rate. We ended up with an extremely statistically significant model that explains roughly 95 percent of the data, and shows median income, percent black, renter percent and violations all have statistically significant relationships with the number of evictions in a zip code. Median income has a small positive correlation (this seems weird, maybe look into this??), the percent of renters has a positive correlation (this makes sense -- more renters = more evictions), the higher rate of black residents is correlated with a higher number of evictions in the zip code, and the most statistically significant factor of all: Higher rates of eviction go hand in hand with higher landlord violations rates. This is probably partially due to the relationship between more renters and more evictions/violations. 
+
+The relationship between median income and increased evictions seems weird to me, but I'm not sure how to address it.
+
+My better model for PREDICTING violations seems to be telling me that places where lots of renters live, primarily black renters, have more evictions. However, I think what was most interesting was my model 4, which shows that, when controlling for renter percentage, median income and poverty rate, the percentage of black residents is the most statistically significant factor influencing evictions per zip code.
+
+Let's look at our predicted values for model six.
+
+```{r}
+dc_full_data_clean_predictions <- dc_full_data_clean |>
+  mutate(
+    predicted_evictions = predict(model6, newdata = dc_full_data_clean),
+    residual = evictions - predicted_evictions,
+    abs_residual = abs(residual),
+    percent_error = abs(residual / evictions) * 100
+  )
+
+prediction_comparison <- dc_full_data_clean_predictions |>
+  select(zipcode, evictions, predicted_evictions, residual, abs_residual, percent_error) |>
+  arrange(desc(abs_residual))
+
+prediction_comparison
+```
+
+Looks like our model has highlighted a few zip codes to investigate further:
+20011, 20024, 20009, 20004 and 20016 all have residuals of more than 50.
+
+### Second analysis: Calculate Z-scores for weekly eviction rates
+
+Let's take a look at the weekly and monthly cadence of evictions and violations. First we will find the number of evictions/violations per week, then we will also look at how that varies by zipcode.
+
+```{r}
+evictions_weekly <- eviction_data_clean |>
+  mutate(week = floor_date(eviction_date, unit = "week")) |>
+           group_by(week) |>
+           summarise(evictions=n())
+```
+
+Let's understand our dataset structure:
+
+```{r data-exploration}
+# Get a summary of the data
+summary(evictions_weekly)
+
+# Check how many days we have in total
+nrow(evictions_weekly)
+
+# Check the date range
+min(evictions_weekly$week)
+max(evictions_weekly$week)
+```
+
+Now let's create a time series visualization of evictions:
+
+```{r time-series-plot}
+# Plot time series
+ggplot(evictions_weekly, aes(x = week, y = evictions)) +
+  geom_line(alpha = 0.5) +
+  geom_smooth(method = "loess", span = 0.1) +
+  theme_minimal() +
+  labs(title = "Weekly Evictions in Washington, DC",
+       x = "Week",
+       y = "Number of scheduled evictions",
+       caption = "Source: Office of the Tenant Advocate") +
+  
+  # Format x-axis with more week labels
+  scale_x_date(
+    # Show breaks at the start of each month
+    date_breaks = "1 month",
+    # Format as "Month Year" (e.g., "Jan 2023")
+    date_labels = "%b %Y",
+    # Expand the axis slightly to avoid clipping
+    expand = c(0.02, 0)
+  ) +
+  
+  # Rotate labels for better readability
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+We have a pretty solid rise in early 2024 that doesn't seem to really meaningfully go down. There's a spike in April 2024 and a significant dip in November 2024. Overall it looks like evictions increased from Dec 2023 to 2024 and have largely stayed up since last winter.
+
+Calculating Z-Scores
+
+Now, let's calculate z-scores for our weeks to see which ones are notably high or low.
+
+```{r calculate-z-scores}
+# Calculate z-scores for evictions
+evictions_weekly <- evictions_weekly |>
+  mutate(
+    mean_evictions = mean(evictions),
+    sd_evictions = sd(evictions),
+    z_score = (evictions - mean_evictions) / sd_evictions,
+    absolute_z_score = abs(z_score))
+
+# Display the data with z-scores
+evictions_weekly |>
+  select(week, evictions, z_score, absolute_z_score) |>
+  arrange(desc(absolute_z_score))
+```
+
+Looks like our most unusual weeks are those with low evictions -- less than 25 it appears. The peak weeks are in early and mid April and mid May.
+
+Let's visualize these - setting to 1.5 since we dont have a ton that are THAT unusual:
+
+```{r plot-z-scores}
+# Highlight unusual weeks in time series
+ggplot(evictions_weekly, aes(x = week, y = evictions, color = abs(z_score) > 1.5)) +
+  geom_point(alpha = 0.5) +
+  scale_color_manual(values = c("gray", "red"), 
+                     name = "Unusual Value",
+                     labels = c("Normal", "Unusual")) +
+  theme_minimal() +
+  labs(title = "Weekly evictions with unusual weeks highlighted",
+       subtitle = "Unusual weeks have z-scores with absolute values > 1.5",
+       x = "Date",
+       y = "Number of Scheduled Evictions",
+       caption = "Source: DC Office of the Tenant Advocate")
+```
+
+It looks like overall, even with pretty significant dips and peaks in the data, most of it is actually fairly close to the mean. We have a few weeks that are quite unusual, but most of those are actually LOW weeks rather than highs. This tells me that, on average, evictions per week are typically higher (above 50 based on this scatterplot). Winter months tend to be pretty low, evictions-wise, which seems like a good thing. I wonder why this is?
+
+Let's do an ANOVA test to see if there are statistically significant differences over time in our evictions data. It's kind of hard to tell in the line graph.
+
+```{r}
+evictions_weekly <- evictions_weekly |>
+  mutate(date = as.Date(week)) |>
+  mutate(time_period = case_when(
+    week < as.Date("2024-06-01") ~ "Period 1",
+    week >= as.Date("2024-06-01") & week < as.Date("2024-12-01") ~ "Period 2",
+    week >= as.Date("2024-12-01") ~ "Period 3"
+  ))
+```
+
+
+```{r anova-test}
+# Perform one-way ANOVA on theft rates by time period
+period_anova <- aov(evictions ~ week, data = evictions_weekly)
+summary(period_anova)
+```
+
+The F Value here is pretty small, and the p value is fairly high. It looks like there isn't a big or statistically significant difference between these time periods. When I swapped time period out for weeks, it also wasn't statistically significant.
+
+
+### Story Pitch
+
+Your notebook must include a final section where you draft a story pitch, backed by your analysis. It needs to discuss your main findings, potential problems, and provide a reporting plan - 25 points
+
+I think my biggest finding is that, when controlled for other factors including income/poverty rate and percent of rental houses in a zipcode, race (and specifically the percent of Black residents) is the biggest predictor on the number of evictions scheduled in a zip code. This was my hunch but I feel pretty confident about it based on my regression.
+
+Potential problems: I still am not 100 percent confident I controlled for all the potential variables, I think I had a lot of different variables that are related and kind of measure the same thing. I would want to show this to someone who is better-versed in stats to kind of gut-check my analysis. I did some analysis with this for my final with Adam which showcases some of the things I would want to dig into -- the relationship between poverty rate, violations, evictions, and what zip codes buck this trend. 
+
+There are a few exceptions - the area around the Wharf (Southwest waterfront, zip code 200024) is largely home to white residents, but has a much higher eviction rate than other primarily white areas. Zip code 20003, which includes Capitol Hill, is also largely white but shows an increased rate of evicitions per rental unit. Takoma Park (zip code 20012) is home to a higher percentage of Black residents, but has low eviction rates. The same is true of Petworth (zip code 20011).
+
+The data shows that majority-Black zip codes that are also home to a higher rate of Hispanic residents tend to have lower eviction rates compared to those with fewer Hispanic residents. This piece is especially interesting to me, and I would like to delve deeper into it. 
+
+Our model also highlighted zip code 20009, 20004 and 20016 as anomalies. I would dig deeper into those to explore why their eviction numbers are higher or lower than expected.
+
+I would like to dig deeper into all of these anomalies to see if I can find other factors that might influence things -- what are the homeowner demographics in each zipcode, for example? How have rental/home prices changed over time in these neighborhoods? Are there a lot of white students living there? Not a lot of renter housing, but everyone who lives in the area is a broke college student maybe?
+
+Digging into the timeline of evictions, there are some pretty key peaks and valleys I would also like to look into, especially that dip in November. I would like to know what was happening that made it so low -- I think there's a lot of potential for mapping to policy changes here. I also want to know how evictions might lag behind policy and how I can control for that in my analysis.
+
+Reporting plan: Dig into neighborhoods with highest evictions and find out what hotspots there are, who is most subject to evictions, and if there are any recurring landlords that are popping up in our data. Try to find patterns in landlord data/violations data. Past that, I think I would need to talk to people who work with those at risk of eviction in the District to find out what they're seeing and what types of people they help most -- families, etc. to be able to draw some connections between the data and what people see on the ground. I think that the exceptions to the model predictions are a good place to start to get a sense of who is impacted by evictions in DC and what surprising groups we might find from this data.

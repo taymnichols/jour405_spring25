@@ -35,7 +35,7 @@ library(plotly)
 ## This section is cleaning data and getting it ready to analyze
 
 ```{r read in data}
-evictions <- read_csv("eviction_data_ward_geocodio.csv")
+evictions <- eviction_data <- read_csv("https://raw.githubusercontent.com/taymnichols/eviction_notice_bot_taymnichols/refs/heads/main/eviction_data_ward.csv")
 df_violations <- read_delim("detailed_landlord_violations.csv", 
                            delim = "\t",  # Try tab as delimiter
                            locale = locale(encoding = "UTF-16LE"),
