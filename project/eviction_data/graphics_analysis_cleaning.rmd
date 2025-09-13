@@ -122,161 +122,163 @@ eviction_data_clean <- eviction_data |>
   select(case_number, defendant_address, quad, zipcode, eviction_date, full_address, lat, lng, ward, year, month_name)
 ```
 
-```{r}
-#I used Claude to help me write all this cleaning code
-eviction_data_clean <- eviction_data_clean |>
-  mutate(
-    # First, separate the unit information from the base address
-    base_address = case_when(
-      # Extract everything before UNIT, APT, etc.
-      str_detect(defendant_address, "(?i)\\s+(UNIT|APT|APARTMENT|SUITE|STE)\\s+[A-Z0-9-]+") ~
-        str_trim(str_replace(defendant_address, 
-                           "(?i)\\s+(UNIT|APT|APARTMENT|SUITE|STE)\\s+[A-Z0-9-]+.*$", "")),
-      
-      # If no UNIT/APT keyword, extract everything before a comma or #
-      str_detect(defendant_address, "[,#]") ~
-        str_trim(str_replace(str_extract(defendant_address, "^[^,#]+"), "\\s+$", "")),
-      
-      # Default: use the whole address if no unit information is found
-      TRUE ~ defendant_address
-    ),
-    
-    # Extract unit information
-    unit_info = case_when(
-      # Match "UNIT 123" format (works for UNIT 202, UNIT 409, UNIT 101, etc.)
-      str_detect(defendant_address, "(?i)\\s+UNIT\\s+\\d+") ~
-        str_trim(str_extract(defendant_address, "(?i)\\s+UNIT\\s+\\d+")),
-      
-      # Match "APT 123" format
-      str_detect(defendant_address, "(?i)\\s+APT(ARTMENT)?\\s+\\d+") ~
-        str_trim(str_extract(defendant_address, "(?i)\\s+APT(ARTMENT)?\\s+\\d+")),
-      
-      # Match "STE 123" format
-      str_detect(defendant_address, "(?i)\\s+S(UI)?TE\\s+\\d+") ~
-        str_trim(str_extract(defendant_address, "(?i)\\s+S(UI)?TE\\s+\\d+")),
-      
-      # Match "#123" format
-      str_detect(defendant_address, "#\\s*[A-Z0-9-]+") ~
-        str_trim(str_extract(defendant_address, "#\\s*[A-Z0-9-]+")),
-      
-      # Match comma followed by unit information
-      str_detect(defendant_address, ",\\s*(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+") ~
-        str_trim(str_extract(defendant_address, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+")),
-      
-      # Default: NA if no unit information is found
-      TRUE ~ NA_character_
-    ),
-    
-    # Extract just the unit number (without the UNIT/APT prefix)
-    clean_unit = case_when(
-      !is.na(unit_info) & str_detect(unit_info, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+") ~
-        str_trim(str_replace(unit_info, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+", "")),
-      
-      !is.na(unit_info) & str_detect(unit_info, "#\\s*\\d+") ~
-        str_trim(str_replace(unit_info, "#\\s*", "")),
-      
-      TRUE ~ NA_character_
-    )
-  ) |>
-  # Now clean and standardize the base address
-  mutate(
-    clean_address = str_replace_all(base_address, "[,\\.]+", ""),
-    
-    # Standardize street suffixes
-    clean_address = case_when(
-      str_detect(clean_address, "(?i)\\s+STREET(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+STREET(\\s+|$)", " ST "),
-      str_detect(clean_address, "(?i)\\s+AVENUE(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+AVENUE(\\s+|$)", " AVE "),
-      str_detect(clean_address, "(?i)\\s+CIRCLE(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+CIRCLE(\\s+|$)", " CIR "),
-      str_detect(clean_address, "(?i)\\s+BOULEVARD(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+BOULEVARD(\\s+|$)", " BLVD "),
-      str_detect(clean_address, "(?i)\\s+COURT(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+COURT(\\s+|$)", " CT "),
-      str_detect(clean_address, "(?i)\\s+DRIVE(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+DRIVE(\\s+|$)", " DR "),
-      str_detect(clean_address, "(?i)\\s+LANE(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+LANE(\\s+|$)", " LN "),
-      str_detect(clean_address, "(?i)\\s+ROAD(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+ROAD(\\s+|$)", " RD "),
-      str_detect(clean_address, "(?i)\\s+PLACE(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+PLACE(\\s+|$)", " PL "),
-      str_detect(clean_address, "(?i)\\s+TERRACE(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+TERRACE(\\s+|$)", " TER "),
-      str_detect(clean_address, "(?i)\\s+HIGHWAY(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+HIGHWAY(\\s+|$)", " HWY "),
-      str_detect(clean_address, "(?i)\\s+PARKWAY(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+PARKWAY(\\s+|$)", " PKWY "),
-      str_detect(clean_address, "(?i)\\s+WAY(\\s+|$)") ~ 
-        str_replace_all(clean_address, "(?i)\\s+WAY(\\s+|$)", " WY "),
-        
-      # Default: keep the address as is
-      TRUE ~ clean_address
-    ),
-    
-    # Clean up any extra spaces
-    clean_address = str_trim(str_replace_all(clean_address, "\\s+", " "))
-  )
+I think we can get rid of this cleaning code now since the data is pre-cleaned in our scraper.
 
-eviction_data_clean <- eviction_data_clean |>
-  mutate(
-    # Extract the street suffix pattern
-    suffix_pattern = "(?i)\\s+(ST|AVE|BLVD|CIR|CT|DR|LN|RD|PL|TER|HWY|PKWY|WY)\\b",
-    
-    # Check if there's any remaining text after the street suffix
-    has_extra_text = str_detect(clean_address, paste0(suffix_pattern, "\\s+.+")),
-    
-    # For addresses with extra text after suffix, update columns
-    temp_address = ifelse(has_extra_text,
-                         str_extract(clean_address, paste0("^.*?", suffix_pattern)),
-                         clean_address),
-    
-    temp_unit_info = ifelse(has_extra_text,
-                           str_trim(str_replace(clean_address, paste0("^.*?", suffix_pattern, "\\s+"), "")),
-                           NA_character_),
-    
-    # Update clean_address with just the part up to the suffix
-    clean_address = ifelse(has_extra_text, str_trim(temp_address), clean_address),
-    
-    # Update unit_info with the extra text if unit_info was previously NA
-    unit_info = case_when(
-      has_extra_text & is.na(unit_info) ~ temp_unit_info,
-      has_extra_text & !is.na(unit_info) ~ paste(unit_info, temp_unit_info, sep = " "),
-      TRUE ~ unit_info
-    ),
-    
-    # Update clean_unit to extract numbers from the new unit_info
-    clean_unit = case_when(
-      # Keep existing clean_unit if already set
-      !is.na(clean_unit) ~ clean_unit,
-      
-      # Extract numbers/alphanumeric from remaining text
-      !is.na(unit_info) & str_detect(unit_info, "[0-9A-Z]+") ~
-        str_trim(str_extract(unit_info, "[0-9A-Z]+")),
-      
-      # Extract content from patterns like (D#202)
-      !is.na(unit_info) & str_detect(unit_info, "\\([^)]*#([0-9A-Z]+)\\)") ~
-        str_trim(str_extract(unit_info, "(?<=\\#)[0-9A-Z]+")),
-      
-      # Extract T1, D2, etc. type patterns
-      !is.na(unit_info) & str_detect(unit_info, "[A-Z][0-9]+") ~
-        str_trim(str_extract(unit_info, "[A-Z][0-9]+")),
-      
-      TRUE ~ NA_character_
-    )
-  ) |>
-  # Clean up the temporary columns
-  select(-suffix_pattern, -has_extra_text, -temp_address, -temp_unit_info) |>
-  filter(!str_detect(full_address, "\\bnan\\b")) |>
-    filter(!str_detect(full_address, "VACANT LOT"))
+```{r}
+# #I used Claude to help me write all this cleaning code
+# eviction_data_clean <- eviction_data_clean |>
+#   mutate(
+#     # First, separate the unit information from the base address
+#     base_address = case_when(
+#       # Extract everything before UNIT, APT, etc.
+#       str_detect(defendant_address, "(?i)\\s+(UNIT|APT|APARTMENT|SUITE|STE)\\s+[A-Z0-9-]+") ~
+#         str_trim(str_replace(defendant_address, 
+#                            "(?i)\\s+(UNIT|APT|APARTMENT|SUITE|STE)\\s+[A-Z0-9-]+.*$", "")),
+#       
+#       # If no UNIT/APT keyword, extract everything before a comma or #
+#       str_detect(defendant_address, "[,#]") ~
+#         str_trim(str_replace(str_extract(defendant_address, "^[^,#]+"), "\\s+$", "")),
+#       
+#       # Default: use the whole address if no unit information is found
+#       TRUE ~ defendant_address
+#     ),
+#     
+#     # Extract unit information
+#     unit_info = case_when(
+#       # Match "UNIT 123" format (works for UNIT 202, UNIT 409, UNIT 101, etc.)
+#       str_detect(defendant_address, "(?i)\\s+UNIT\\s+\\d+") ~
+#         str_trim(str_extract(defendant_address, "(?i)\\s+UNIT\\s+\\d+")),
+#       
+#       # Match "APT 123" format
+#       str_detect(defendant_address, "(?i)\\s+APT(ARTMENT)?\\s+\\d+") ~
+#         str_trim(str_extract(defendant_address, "(?i)\\s+APT(ARTMENT)?\\s+\\d+")),
+#       
+#       # Match "STE 123" format
+#       str_detect(defendant_address, "(?i)\\s+S(UI)?TE\\s+\\d+") ~
+#         str_trim(str_extract(defendant_address, "(?i)\\s+S(UI)?TE\\s+\\d+")),
+#       
+#       # Match "#123" format
+#       str_detect(defendant_address, "#\\s*[A-Z0-9-]+") ~
+#         str_trim(str_extract(defendant_address, "#\\s*[A-Z0-9-]+")),
+#       
+#       # Match comma followed by unit information
+#       str_detect(defendant_address, ",\\s*(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+") ~
+#         str_trim(str_extract(defendant_address, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+")),
+#       
+#       # Default: NA if no unit information is found
+#       TRUE ~ NA_character_
+#     ),
+#     
+#     # Extract just the unit number (without the UNIT/APT prefix)
+#     clean_unit = case_when(
+#       !is.na(unit_info) & str_detect(unit_info, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+\\d+") ~
+#         str_trim(str_replace(unit_info, "(?i)(UNIT|APT|APARTMENT|SUITE|STE)\\s+", "")),
+#       
+#       !is.na(unit_info) & str_detect(unit_info, "#\\s*\\d+") ~
+#         str_trim(str_replace(unit_info, "#\\s*", "")),
+#       
+#       TRUE ~ NA_character_
+#     )
+#   ) |>
+#   # Now clean and standardize the base address
+#   mutate(
+#     clean_address = str_replace_all(base_address, "[,\\.]+", ""),
+#     
+#     # Standardize street suffixes
+#     clean_address = case_when(
+#       str_detect(clean_address, "(?i)\\s+STREET(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+STREET(\\s+|$)", " ST "),
+#       str_detect(clean_address, "(?i)\\s+AVENUE(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+AVENUE(\\s+|$)", " AVE "),
+#       str_detect(clean_address, "(?i)\\s+CIRCLE(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+CIRCLE(\\s+|$)", " CIR "),
+#       str_detect(clean_address, "(?i)\\s+BOULEVARD(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+BOULEVARD(\\s+|$)", " BLVD "),
+#       str_detect(clean_address, "(?i)\\s+COURT(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+COURT(\\s+|$)", " CT "),
+#       str_detect(clean_address, "(?i)\\s+DRIVE(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+DRIVE(\\s+|$)", " DR "),
+#       str_detect(clean_address, "(?i)\\s+LANE(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+LANE(\\s+|$)", " LN "),
+#       str_detect(clean_address, "(?i)\\s+ROAD(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+ROAD(\\s+|$)", " RD "),
+#       str_detect(clean_address, "(?i)\\s+PLACE(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+PLACE(\\s+|$)", " PL "),
+#       str_detect(clean_address, "(?i)\\s+TERRACE(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+TERRACE(\\s+|$)", " TER "),
+#       str_detect(clean_address, "(?i)\\s+HIGHWAY(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+HIGHWAY(\\s+|$)", " HWY "),
+#       str_detect(clean_address, "(?i)\\s+PARKWAY(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+PARKWAY(\\s+|$)", " PKWY "),
+#       str_detect(clean_address, "(?i)\\s+WAY(\\s+|$)") ~ 
+#         str_replace_all(clean_address, "(?i)\\s+WAY(\\s+|$)", " WY "),
+#         
+#       # Default: keep the address as is
+#       TRUE ~ clean_address
+#     ),
+#     
+#     # Clean up any extra spaces
+#     clean_address = str_trim(str_replace_all(clean_address, "\\s+", " "))
+#   )
+# 
+# eviction_data_clean <- eviction_data_clean |>
+#   mutate(
+#     # Extract the street suffix pattern
+#     suffix_pattern = "(?i)\\s+(ST|AVE|BLVD|CIR|CT|DR|LN|RD|PL|TER|HWY|PKWY|WY)\\b",
+#     
+#     # Check if there's any remaining text after the street suffix
+#     has_extra_text = str_detect(clean_address, paste0(suffix_pattern, "\\s+.+")),
+#     
+#     # For addresses with extra text after suffix, update columns
+#     temp_address = ifelse(has_extra_text,
+#                          str_extract(clean_address, paste0("^.*?", suffix_pattern)),
+#                          clean_address),
+#     
+#     temp_unit_info = ifelse(has_extra_text,
+#                            str_trim(str_replace(clean_address, paste0("^.*?", suffix_pattern, "\\s+"), "")),
+#                            NA_character_),
+#     
+#     # Update clean_address with just the part up to the suffix
+#     clean_address = ifelse(has_extra_text, str_trim(temp_address), clean_address),
+#     
+#     # Update unit_info with the extra text if unit_info was previously NA
+#     unit_info = case_when(
+#       has_extra_text & is.na(unit_info) ~ temp_unit_info,
+#       has_extra_text & !is.na(unit_info) ~ paste(unit_info, temp_unit_info, sep = " "),
+#       TRUE ~ unit_info
+#     ),
+#     
+#     # Update clean_unit to extract numbers from the new unit_info
+#     clean_unit = case_when(
+#       # Keep existing clean_unit if already set
+#       !is.na(clean_unit) ~ clean_unit,
+#       
+#       # Extract numbers/alphanumeric from remaining text
+#       !is.na(unit_info) & str_detect(unit_info, "[0-9A-Z]+") ~
+#         str_trim(str_extract(unit_info, "[0-9A-Z]+")),
+#       
+#       # Extract content from patterns like (D#202)
+#       !is.na(unit_info) & str_detect(unit_info, "\\([^)]*#([0-9A-Z]+)\\)") ~
+#         str_trim(str_extract(unit_info, "(?<=\\#)[0-9A-Z]+")),
+#       
+#       # Extract T1, D2, etc. type patterns
+#       !is.na(unit_info) & str_detect(unit_info, "[A-Z][0-9]+") ~
+#         str_trim(str_extract(unit_info, "[A-Z][0-9]+")),
+#       
+#       TRUE ~ NA_character_
+#     )
+#   ) |>
+#   # Clean up the temporary columns
+#   select(-suffix_pattern, -has_extra_text, -temp_address, -temp_unit_info) |>
+#   filter(!str_detect(full_address, "\\bnan\\b")) |>
+#     filter(!str_detect(full_address, "VACANT LOT"))
 ```
 
 The evictions data is still pretty messy. Units will need more cleaning, but at least we can play around with base address now.
 
 ```{r}
 df_violations_clean <- df_violations_filtered |>
-  select(s_no, owner, violation_address, unit, zipcode, ward, created_date, location, violation, )
+  select(s_no, owner, violation_address, unit, zipcode, ward, created_date, location, violation)
 ```
 
 Let's make a df that shows us how many violations have happened at each street address and how many units there are.
